@@ -1,0 +1,4 @@
+
+build_nrf9160_pca10090ns/
+build_*
+.vscode/*
