@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2019 Nordic Semiconductor ASA
+ * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
  */
 
 / {
-	model = "Nordic Thingy91 nRF9160";
-	compatible = "nordic,thingy91-nrf9160";
+	model = "Apricity Gateway nRF9160";
+	compatible = "apricity,apricity-gateway-nrf9160";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -18,7 +18,7 @@
 		compatible = "gpio-keys";
 
 		button0: button_0 {
-			gpios = <&gpio0 26 GPIO_PUD_PULL_UP>;
+			gpios = <&gpio0 26 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 			label = "Button 1";
 		};
 	};
@@ -166,6 +166,7 @@
 };
 
 &uart0 {
+	compatible = "nordic,nrf-uarte";
 	current-speed = <115200>;
 	status = "okay";
 	tx-pin = <18>;
@@ -175,12 +176,13 @@
 };
 
 &uart1 {
+	compatible = "nordic,nrf-uarte";
 	current-speed = <1000000>;
 	status = "okay";
-	tx-pin = <22>;
-	rx-pin = <23>;
-	rts-pin = <24>;
-	cts-pin = <25>;
+	tx-pin = <23>;
+	rx-pin = <22>;
+	rts-pin = <25>;
+	cts-pin = <24>;
 };
 
 &flash0 {
@@ -222,17 +224,17 @@
 
 / {
 	/* SRAM allocated and used by the BSD library */
-	sram0_bsd: memory@20008000 {
+	sram0_bsd: memory@20010000 {
 		device_type = "memory";
 		compatible = "mmio-sram";
 	};
 
 	/* SRAM allocated to the Non-Secure image */
-	sram0_ns: memory@20018000 {
+	sram0_ns: memory@20020000 {
 		device_type = "memory";
 		compatible = "mmio-sram";
 	};
 };
 
 /* Include partition configuration file */
-#include "thingy91_nrf9160_partition_conf.dts"
+#include "apricity_gateway_nrf9160_partition_conf.dts"

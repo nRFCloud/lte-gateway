@@ -1,12 +1,15 @@
 CONFIG_SOC_SERIES_NRF91X=y
 CONFIG_SOC_NRF9160_SICA=y
-CONFIG_BOARD_THINGY91_NRF9160=y
+CONFIG_BOARD_APRICITY_GATEWAY_NRF9160NS=y
 
 # Enable MPU
 CONFIG_ARM_MPU=y
 
 # Enable TrustZone-M
 CONFIG_ARM_TRUSTZONE_M=y
+
+# This Board implies building Non-Secure firmware
+CONFIG_TRUSTED_EXECUTION_NONSECURE=y
 
 # Enable GPIO
 CONFIG_GPIO=y
@@ -20,8 +23,11 @@ CONFIG_UART_CONSOLE=y
 
 # Enable I2C
 CONFIG_I2C=y
-# Note: I2C_2 is enabled in Kconfig.defconfig where it can depend on I2C
-#	to avoid warnings when building for MCUboot, which disables I2C.
+CONFIG_I2C_2=y
+
+# Enable SPI
+CONFIG_SPI=y
+CONFIG_SPI_3=y
 
 # Enable power management IC ADP536x
 CONFIG_ADP536X=y
