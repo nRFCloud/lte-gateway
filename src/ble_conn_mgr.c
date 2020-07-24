@@ -23,7 +23,7 @@ typedef struct
 
 static desired_conns desired_connection[CONFIG_BT_MAX_CONN];
 
-#define CONN_MGR_STACK_SIZE 1600
+#define CONN_MGR_STACK_SIZE 3072
 #define CONN_MGR_PRIORITY 1
 
 void connection_manager(int unused1, int unused2, int unused3)
