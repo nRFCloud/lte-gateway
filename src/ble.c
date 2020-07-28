@@ -129,7 +129,7 @@ static void chrc_attr_data_add(const struct bt_gatt_chrc *gatt_chrc,  connected_
 
 }
 
-static void ccc_attr_data_add(const struct bt_gatt_ccc *gatt_ccc, struct bt_uuid* uuid, u16_t handle, connected_ble_devices* ble_conn_ptr)
+static void ccc_attr_data_add(const struct bt_uuid* uuid, u16_t handle, connected_ble_devices* ble_conn_ptr)
 {
 
         LOG_DBG("\tHandle: %d",handle);
@@ -140,10 +140,20 @@ static void ccc_attr_data_add(const struct bt_gatt_ccc *gatt_ccc, struct bt_uuid
 
 /*Add attributes to the connection manager objects*/
 static void attr_add(const struct bt_gatt_dm *dm,
-                     const struct bt_gatt_attr *attr,
+                     const struct bt_gatt_dm_attr *attr,
                      connected_ble_devices* ble_conn_ptr)
 {
         char str[UUID_STR_LEN];
+        /* PETE: NEED TO RESOLVE attr->user_data not being present now in 1.3.0 */
+
+	// perhaps use:
+	// struct bt_gatt_service_val *bt_gatt_dm_attr_service_val(const struct bt_gatt_dm_attr *attr)
+	// struct bt_gatt_chrc *bt_gatt_dm_attr_chrc_val(const struct bt_gatt_dm_attr *attr)
+
+	const struct bt_gatt_service_val *gatt_service =
+		bt_gatt_dm_attr_service_val(attr);
+	const struct bt_gatt_chrc *gatt_chrc =
+		bt_gatt_dm_attr_chrc_val(attr);
 
         bt_uuid_get_str(attr->uuid, str, sizeof(str));
 
@@ -151,18 +161,18 @@ static void attr_add(const struct bt_gatt_dm *dm,
 
         if ((bt_uuid_cmp(attr->uuid, BT_UUID_GATT_PRIMARY) == 0) ||
             (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_SECONDARY) == 0)) {
-                svc_attr_data_add(attr->user_data, attr->handle, ble_conn_ptr);
+                svc_attr_data_add(gatt_service, attr->handle, ble_conn_ptr);
         } else if (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CHRC) == 0) {
-                chrc_attr_data_add(attr->user_data, ble_conn_ptr);
+                chrc_attr_data_add(gatt_chrc, ble_conn_ptr);
         } else if (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CCC) == 0) {
-                ccc_attr_data_add(attr->user_data, attr->uuid, attr->handle, ble_conn_ptr);
+                ccc_attr_data_add(attr->uuid, attr->handle, ble_conn_ptr);
         }
 }
 
-void ble_dm_data_add(const struct bt_gatt_dm *dm)
+void ble_dm_data_add(struct bt_gatt_dm *dm)
 {
 
-        const struct bt_gatt_attr *attr = NULL;
+        const struct bt_gatt_dm_attr *attr = NULL;
         char addr_trunc[BT_ADDR_STR_LEN];
         char addr[BT_ADDR_LE_STR_LEN];
 
@@ -192,7 +202,7 @@ void ble_dm_data_add(const struct bt_gatt_dm *dm)
 
 }
 
-/*Thread resposible for transfering ble data over MQTT*/
+/*Thread responsible for transfering ble data over MQTT*/
 void send_notify_data(int unused1, int unused2, int unused3)
 {
 
@@ -736,21 +746,25 @@ void auto_conn_start_work_handler(struct k_work *work)
         int err;
 
         //Restart to scanning for whitelisted devices
-        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
+        struct bt_conn_le_create_param param = BT_CONN_LE_CREATE_PARAM_INIT(
+                                                BT_CONN_LE_OPT_NONE,
+                                                BT_GAP_SCAN_FAST_INTERVAL,
+                                                BT_GAP_SCAN_FAST_WINDOW);
+
+        err = bt_conn_le_create_auto(&param, BT_LE_CONN_PARAM_DEFAULT);
 
         if (err) {
                 LOG_INF("Connection exists");
         } else {
-
                 LOG_INF("Connection creation pending");
         }
 
 }
+
 K_WORK_DEFINE(auto_conn_start_work, auto_conn_start_work_handler);
 
 void auto_conn_start_timer_handler(struct k_timer *timer)
 {
-
         k_work_submit(&auto_conn_start_work);
 
 }
@@ -893,7 +907,7 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
         bt_data_parse(ad, data_cb, name);
 
         /* We're only interested in connectable events */
-        if (type != BT_LE_ADV_IND && type != BT_LE_ADV_DIRECT_IND) {
+        if (type != BT_HCI_ADV_IND && type != BT_HCI_ADV_DIRECT_IND) {
                 return;
         }
 

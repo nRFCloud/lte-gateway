@@ -115,7 +115,6 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 
         cJSON *chrc_uuid;
         cJSON *service_uuid;
-        cJSON *desc_uuid;
         cJSON *desc_arr;
         u8_t desc_buf[2] = {0};
         u8_t desc_len = 0;

@@ -8,6 +8,8 @@
 #include <kernel_structs.h>
 #include <stdio.h>
 #include <string.h>
+#include <device.h>
+#include <drivers/uart.h>
 #include <drivers/gps.h>
 #include <drivers/sensor.h>
 #include <console/console.h>
@@ -633,7 +635,9 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #if defined(CONFIG_LTE_LINK_CONTROL)
 		lte_lc_power_off();
 #endif
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	default:
 		LOG_WRN("Unknown cloud event type: %d", evt->type);
@@ -783,17 +787,23 @@ void handle_bsdlib_init_ret(void)
 	switch (ret) {
 	case MODEM_DFU_RESULT_OK:
 		LOG_INF("MODEM UPDATE OK. Will run new firmware");
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	case MODEM_DFU_RESULT_UUID_ERROR:
 	case MODEM_DFU_RESULT_AUTH_ERROR:
 		LOG_ERR("MODEM UPDATE ERROR %d. Will run old firmware", ret);
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	case MODEM_DFU_RESULT_HARDWARE_ERROR:
 	case MODEM_DFU_RESULT_INTERNAL_ERROR:
 		LOG_ERR("MODEM UPDATE FATAL ERROR %d. Modem failiure", ret);
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	default:
 		break;
@@ -801,11 +811,51 @@ void handle_bsdlib_init_ret(void)
 	#endif /* CONFIG_BSD_LIBRARY */
 }
 
+
+#define UART0 DT_NODELABEL(uart0)
+#define UART0_TX DT_PROP(UART0, tx_pin)
+#define UART0_RX DT_PROP(UART0, rx_pin)
+#define UART0_RTS DT_PROP(UART0, rts_pin)
+#define UART0_CTS DT_PROP(UART0, cts_pin)
+#define UART0_SPEED DT_PROP(UART0, current_speed)
+#define UART1 DT_NODELABEL(uart1)
+#define UART1_TX DT_PROP(UART1, tx_pin)
+#define UART1_RX DT_PROP(UART1, rx_pin)
+#define UART1_RTS DT_PROP(UART1, rts_pin)
+#define UART1_CTS DT_PROP(UART1, cts_pin)
+#define UART1_SPEED DT_PROP(UART1, current_speed)
+
 void main(void)
 {
-	LOG_INF("Gateway started");
+#if 0
+	struct uart_config config;
+	struct device *uart_0_dev = device_get_binding("UART_0");
+	struct device *uart_1_dev = device_get_binding("UART_1");
 
-    ble_init();
+	LOG_INF("UART0 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
+	     UART0_TX, UART0_RX, UART0_RTS, UART0_CTS, UART0_SPEED);
+	LOG_INF("UART1 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
+	     UART1_TX, UART1_RX, UART1_RTS, UART1_CTS, UART1_SPEED);
+	k_sleep(K_MSEC(50));
+
+	uart_config_get(uart_0_dev, &config);
+	LOG_INF("UART0 speed:%u, flow:%d", config.baudrate,
+		config.flow_ctrl);
+	k_sleep(K_MSEC(50));
+
+	uart_config_get(uart_1_dev, &config);
+	LOG_INF("UART1 speed:%u, flow:%d", config.baudrate,
+		config.flow_ctrl);
+
+	LOG_INF("Reset pin:%d",
+		CONFIG_BOARD_NRF52840_GPIO_RESET_PIN);
+#endif
+
+#if defined(CONFIG_USE_UI_MODULE)
+	ui_init(NULL);
+#endif
+
+	ble_init();
 
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
@@ -830,10 +880,6 @@ void main(void)
 				CONFIG_CLOUD_CONNECT_RETRY_DELAY);
 		k_sleep(K_SECONDS(CONFIG_CLOUD_CONNECT_RETRY_DELAY));
 	}
-
-#if defined(CONFIG_USE_UI_MODULE)
-	ui_init(NULL);
-#endif
 
 #if defined(CONFIG_LWM2M_CARRIER)
 	LOG_INF("Waiting for LWM2M carrier to complete initialization...");

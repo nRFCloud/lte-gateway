@@ -40,10 +40,10 @@ static const struct led_effect effect[] = {
 	[UI_CLOUD_CONNECTING] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
 					UI_LED_OFF_PERIOD_NORMAL,
 					UI_CLOUD_CONNECTING_COLOR),
-	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_ON(UI_LED_COLOR_BLUE),
-//	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
-//					UI_LED_OFF_PERIOD_NORMAL,
-//					UI_CLOUD_CONNECTED_COLOR),
+//	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_ON(UI_LED_COLOR_BLUE),
+	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
+					UI_LED_OFF_PERIOD_NORMAL,
+					UI_CLOUD_CONNECTED_COLOR),
 	[UI_CLOUD_PAIRING] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
 					UI_LED_OFF_PERIOD_NORMAL,
 					UI_CLOUD_PAIRING_COLOR),
@@ -136,7 +136,7 @@ static void work_handler(struct k_work *work)
 		s32_t next_delay =
 			leds.effect->steps[leds.effect_step].substep_time;
 
-		k_delayed_work_submit(&leds.work, next_delay);
+		k_delayed_work_submit(&leds.work, K_MSEC(next_delay));
 	}
 }
 
@@ -158,7 +158,7 @@ static void led_update(struct led *led)
 		s32_t next_delay =
 			led->effect->steps[led->effect_step].substep_time;
 
-		k_delayed_work_submit(&led->work, next_delay);
+		k_delayed_work_submit(&led->work, K_MSEC(next_delay));
 	} else {
 		LOG_DBG("LED effect with no effect");
 	}
