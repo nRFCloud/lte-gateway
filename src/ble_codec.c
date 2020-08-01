@@ -1,6 +1,10 @@
 #include <zephyr.h>
 #include <stdio.h>
 #include <string.h>
+#undef __XSI_VISIBLE
+#define __XSI_VISIBLE 1
+#include <time.h>
+#include <posix/time.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
@@ -105,6 +109,23 @@ bool first_chrc = true;
 } while(0)
 
 
+char *get_time_str(char *dst, size_t len)
+{
+	struct timespec ts;
+	struct tm tm;
+	time_t t;
+
+	if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+		LOG_DBG("Unix time %lld", ts.tv_sec);
+		t = (time_t)ts.tv_sec;
+		tm = *(gmtime(&t));
+		// 2020-02-19T18:38:50.363Z
+		strftime(dst, len, "%Y-%m-%dT%H:%M:%S.000Z", &tm);
+		LOG_DBG("Date/time %s", log_strdup(dst));
+	}
+	return dst;
+}
+
 int device_error_encode(char *ble_address, char *error_msg)
 {
 	/* TODO: Front end doesn't handle error messages yet.
@@ -125,7 +146,9 @@ int device_error_encode(char *ble_address, char *error_msg)
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
 
 	CJADD(root_obj, "event", event);
-	CJADDSTR(root_obj, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+	CJADDSTR(root_obj, "timestamp", get_time_str(str, sizeof(str)));
 
 	CJADDSTR(event, "type", "error");
 	CJADD(event, "device", device);
@@ -171,7 +194,11 @@ int device_found_encode(u8_t num_devices_found)
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "scan_result");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADDSTR(event, "subType", "instant");
 	CJADD(event, "devices", devices);
 
@@ -237,7 +264,11 @@ int device_connect_result_encode(char *ble_address, bool conn_status)
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_connect_result");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -287,7 +318,11 @@ int device_disconnect_result_encode(char *ble_address, bool conn_status)
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_disconnect");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -339,7 +374,11 @@ int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_characteristic_value_changed");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -400,7 +439,11 @@ int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_descriptor_value_write_result");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -461,7 +504,11 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_descriptor_value_changed");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -522,7 +569,11 @@ int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 	CJADD(root_obj, "event", event);
 
 	CJADDSTR(event, "type", "device_characteristic_value_read_result");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);
@@ -582,7 +633,11 @@ static int create_device_wrapper(char *ble_address, bool conn_status)
 	CJADD(root_obj, "event", event);
 
 	CJADDSTR(event, "type", "device_discover_result");
-	CJADDSTR(event, "timestamp", "2020-02-19T18:38:50.363Z");
+
+	char str[64];
+
+	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+
 	CJADD(event, "device", device);
 
 	CJADDSTR(device, "id", ble_address);

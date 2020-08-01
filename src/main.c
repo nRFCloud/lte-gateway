@@ -23,7 +23,10 @@
 #include <net/cloud.h>
 #include <net/socket.h>
 #include <net/nrf_cloud.h>
-
+#undef __XSI_VISIBLE
+#define __XSI_VISIBLE 1
+#include <time.h>
+#include <posix/time.h>
 #include <fw_info.h>
 
 #if defined(CONFIG_LWM2M_CARRIER)
@@ -638,6 +641,45 @@ void log_modem_info(void)
 				modem_param.device.modem_fw.type,
 				modem_param.device.modem_fw.value);
 		}
+		if (modem_param.network.date_time.value_string) {
+			char *str = modem_param.network.date_time.value_string;
+			_timezone = atoi(&str[18]) * 15 * 60;
+			_daylight = atoi(&str[25]);
+			LOG_INF("modem_info.network.date_time: %s "
+				"_daylight %d _timezone %ld",
+				modem_param.network.date_time.value_string,
+				_daylight, _timezone);
+
+			struct tm tm;
+			char *rm;
+			struct timespec ts;
+
+			/* 20/06/12,00:47:47-28 */
+			rm = strptime(modem_param.network.date_time.value_string,
+				"%y/%m/%d,%H:%M:%S", &tm);
+			if (rm) {
+				ts.tv_sec = mktime(&tm);
+				ts.tv_nsec = 0;
+				LOG_INF("setting time to %lld", ts.tv_sec);
+
+				/*tzset();
+				char *tz = getenv("TZ");
+				LOG_INF("TZ=%s", tz ? tz : "<unknown>"); */
+
+				if (!clock_settime(CLOCK_REALTIME, &ts)) {
+					LOG_INF("time set");
+				} else {
+					LOG_ERR("error %d on clock_settime()",
+						errno);
+				}
+			} else {
+				LOG_ERR("strptime() could not parse time");
+			}
+		} else {
+			LOG_WRN("modem_info.network.date_time: empty");
+		}
+
+
 	}
 #endif
 }
