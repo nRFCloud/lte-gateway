@@ -38,7 +38,7 @@ bool first_chrc = true;
 	if ((_a_) == NULL) { \
 		goto cleanup; \
 	} \
-} while(0)
+} while (0)
 
 #define CJADD cJSON_AddItemToObject
 #define CJADDBOOL cJSON_AddBoolToObject
@@ -50,7 +50,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToObject((_a_), (_b_), (_c_)); \
-} while(0)
+} while (0)
 
 #define CJADDSTR(_a_, _b_, _c_) do { \
 	cJSON *tmp = cJSON_CreateString(_c_); \
@@ -58,7 +58,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while(0)
+} while (0)
 
 #define CJADDBOOLOBJ(_a_, _b_, _c_) do { \
 	cJSON *tmp = cJSON_CreateBool(_c_); \
@@ -66,7 +66,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while(0)
+} while (0)
 
 #define CJADDNULL(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateNull(); \
@@ -74,7 +74,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while(0)
+} while (0)
 
 #define CJADDTRUE(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateTrue(); \
@@ -82,7 +82,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while(0)
+} while (0)
 
 #define CJADDARROBJ(_a_, _b_) do { \
 	(_b_) = cJSON_CreateObject(); \
@@ -90,7 +90,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToArray((_a_), (_b_)); \
-} while(0)
+} while (0)
 
 #define CJADDARRNUM(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateNumber((_b_)); \
@@ -98,7 +98,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToArray((_a_), tmp); \
-} while(0)
+} while (0)
 
 #define CJADDARRSTR(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateString((_b_)); \
@@ -106,7 +106,7 @@ bool first_chrc = true;
 		goto cleanup; \
 	} \
 	cJSON_AddItemToArray((_a_), tmp); \
-} while(0)
+} while (0)
 
 
 char *get_time_str(char *dst, size_t len)
@@ -148,6 +148,7 @@ int device_error_encode(char *ble_address, char *error_msg)
 	CJADD(root_obj, "event", event);
 
 	char str[64];
+
 	CJADDSTR(root_obj, "timestamp", get_time_str(str, sizeof(str)));
 
 	CJADDSTR(event, "type", "error");
@@ -791,7 +792,7 @@ static int device_discover_add_ccc(char *discovered_json)
 	return 0;
 }
 
-int device_discovery_send()
+int device_discovery_send(void)
 {
 	/* Add the remaing brackets to the JSON string that was assembled. */
 	strcat(buffer, "}}}}}");
@@ -969,32 +970,32 @@ cleanup:
 	return -ENOMEM;
 }
 
-static int attr_encode(u16_t attr_type, char* uuid_str, char* path,
-			u8_t properties, connected_ble_devices* ble_conn_ptr)
+static int attr_encode(u16_t attr_type, char *uuid_str, char *path,
+			u8_t properties, connected_ble_devices *ble_conn_ptr)
 {
 	int ret = 0;
 
-        bt_to_upper(uuid_str, strlen(uuid_str));
-        bt_to_upper(path, strlen(path));
+	bt_to_upper(uuid_str, strlen(uuid_str));
+	bt_to_upper(path, strlen(path));
 
-        if (attr_type ==  BT_ATTR_SERVICE) {
-                LOG_INF("Encoding Service : UUID: %s", log_strdup(uuid_str));
-                ret = svc_attr_encode(uuid_str, path, ble_conn_ptr);
+	if (attr_type ==  BT_ATTR_SERVICE) {
+		LOG_INF("Encoding Service : UUID: %s", log_strdup(uuid_str));
+		ret = svc_attr_encode(uuid_str, path, ble_conn_ptr);
 
-        } else if (attr_type == BT_ATTR_CHRC) {
-                LOG_INF("Encoding Characteristic : UUID: %s  PATH: %s",
+	} else if (attr_type == BT_ATTR_CHRC) {
+		LOG_INF("Encoding Characteristic : UUID: %s  PATH: %s",
 			log_strdup(uuid_str), path);
-                ret = chrc_attr_encode(uuid_str, path, properties,
+		ret = chrc_attr_encode(uuid_str, path, properties,
 				       ble_conn_ptr);
 
-        } else if (attr_type == BT_ATTR_CCC) {
-                LOG_INF("Encoding CCC : UUID: %s  PATH: %s",
+	} else if (attr_type == BT_ATTR_CCC) {
+		LOG_INF("Encoding CCC : UUID: %s  PATH: %s",
 			log_strdup(uuid_str), path);
-                ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr);
-        } else {
-                LOG_ERR("Unknown Attr Type");
+		ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr);
+	} else {
+		LOG_ERR("Unknown Attr Type");
 		ret = -EINVAL;
-        }
+	}
 	return ret;
 }
 

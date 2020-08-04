@@ -97,7 +97,7 @@ void connection_manager(int unused1, int unused2, int unused3)
 			process_connection(i);
 		}
 
-	end:
+end:
 		k_sleep(K_MSEC(500));
 	}
 }
@@ -450,7 +450,8 @@ int ble_conn_mgr_get_handle_by_uuid(u16_t *handle, char *uuid,
 
 		bt_uuid_get_str(&uuid_handle->uuid_16.uuid, str, sizeof(str));
 		bt_to_upper(str, strlen(str));
-		LOG_DBG("UUID IN: %s UUID FOUND: %s", uuid, str);
+		LOG_DBG("UUID IN: %s UUID FOUND: %s", log_strdup(uuid),
+			log_strdup(str));
 
 		if (!strcmp(uuid, str)) {
 			*handle = uuid_handle->handle;
@@ -460,7 +461,8 @@ int ble_conn_mgr_get_handle_by_uuid(u16_t *handle, char *uuid,
 
 		bt_uuid_get_str(&uuid_handle->uuid_128.uuid, str, sizeof(str));
 		bt_to_upper(str, strlen(str));
-		LOG_DBG("UUID IN: %s UUID FOUND: %s", uuid, str);
+		LOG_DBG("UUID IN: %s UUID FOUND: %s", log_strdup(uuid),
+			log_strdup(str));
 		if (!strcmp(uuid, str)) {
 			*handle = uuid_handle->handle;
 			LOG_DBG("128 Bit UUID Found");
@@ -503,7 +505,7 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle,
 		uuid_handle->uuid_type = BT_UUID_TYPE_16;
 		bt_uuid_get_str(&uuid_handle->uuid_16.uuid, str, sizeof(str));
 
-		LOG_DBG("\tCONN MGR Characteristic: 0x%s", str);
+		LOG_DBG("\tCONN MGR Characteristic: 0x%s", log_strdup(str));
 		break;
 	case BT_UUID_TYPE_128:
 		memcpy(&uuid_handle->uuid_128, BT_UUID_128(uuid),
@@ -511,7 +513,7 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle,
 		uuid_handle->uuid_type = BT_UUID_TYPE_128;
 		bt_uuid_get_str(&uuid_handle->uuid_128.uuid, str, sizeof(str));
 
-		LOG_DBG("\tCONN MGR Characteristic: 0x%s", str);
+		LOG_DBG("\tCONN MGR Characteristic: 0x%s", log_strdup(str));
 		break;
 	default:
 		return 0;

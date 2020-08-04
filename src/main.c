@@ -616,7 +616,7 @@ void log_fw_info(void)
 	struct fw_info *info = &m_firmware_info;
 
 	if (info) {
-		LOG_INF("Ver:%u, Size:%u, Start:0x%08u, Boot:0x%08u, Valid:%u",
+		LOG_INF("Ver:%u, Size:%u, Start:0x%08x, Boot:0x%08x, Valid:%u",
 			info->version, info->size, info->address,
 			info->boot_address, info->valid);
 	}
@@ -643,6 +643,7 @@ void log_modem_info(void)
 		}
 		if (modem_param.network.date_time.value_string) {
 			char *str = modem_param.network.date_time.value_string;
+
 			_timezone = atoi(&str[18]) * 15 * 60;
 			_daylight = atoi(&str[25]);
 			LOG_INF("modem_info.network.date_time: %s "
@@ -652,19 +653,20 @@ void log_modem_info(void)
 
 			struct tm tm;
 			char *rm;
+			char *src = modem_param.network.date_time.value_string;
 			struct timespec ts;
 
 			/* 20/06/12,00:47:47-28 */
-			rm = strptime(modem_param.network.date_time.value_string,
-				"%y/%m/%d,%H:%M:%S", &tm);
+			rm = strptime(src, "%y/%m/%d,%H:%M:%S", &tm);
 			if (rm) {
 				ts.tv_sec = mktime(&tm);
 				ts.tv_nsec = 0;
 				LOG_INF("setting time to %lld", ts.tv_sec);
 
-				/*tzset();
-				char *tz = getenv("TZ");
-				LOG_INF("TZ=%s", tz ? tz : "<unknown>"); */
+				/* tzset();
+				 * char *tz = getenv("TZ");
+				 * LOG_INF("TZ=%s", tz ? tz : "<unknown>");
+				 */
 
 				if (!clock_settime(CLOCK_REALTIME, &ts)) {
 					LOG_INF("time set");

@@ -33,7 +33,7 @@ bool discover_in_progress = false;
 bool ok_to_send = true;
 bool scan_waiting = false;
 
-int num_devices_found = 0;
+int num_devices_found;
 u8_t read_buf[READ_BUF_SIZE];
 
 struct k_timer rec_timer;
@@ -44,7 +44,7 @@ struct k_work scan_off_work;
 struct k_work ble_device_encode_work;
 struct k_work start_auto_conn_work;
 
-atomic_t queued_notifications = 0;
+atomic_t queued_notifications;
 
 ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 
@@ -55,7 +55,7 @@ ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 struct bt_gatt_subscribe_params sub_param[BT_MAX_SUBSCRIBES];
 /* Array of connections corresponding to subscriptions above */
 struct bt_conn *sub_conn[BT_MAX_SUBSCRIBES];
-u8_t curr_subs = 0;
+u8_t curr_subs;
 
 struct rec_data_t {
 	void *fifo_reserved;
@@ -194,7 +194,7 @@ void ble_dm_data_add(struct bt_gatt_dm *dm)
 	}
 }
 
-/*Thread responsible for transfering ble data over MQTT*/
+/* Thread responsible for transferring ble data over MQTT */
 void send_notify_data(int unused1, int unused2, int unused3)
 {
 	char uuid[BT_MAX_UUID_LEN];
@@ -491,12 +491,12 @@ static u8_t on_received(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-/*	static atomic_t busy = 0;
-
-	if (!atomic_cas(&busy, 0, 1)) {
-		LOG_WRN("on_received() busy!");
-		return ret;
-	} */
+	/* static atomic_t busy = 0;
+	 * if (!atomic_cas(&busy, 0, 1)) {
+	 *	LOG_WRN("on_received() busy!");
+	 *	return ret;
+	 * }
+	 */
 	u32_t lock = irq_lock();
 
 	if ((length > 0) && (data != NULL)) {
@@ -508,7 +508,9 @@ static u8_t on_received(struct bt_conn *conn,
 
 		bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
-		struct rec_data_t tx_data = { .length = length };
+		struct rec_data_t tx_data = {
+			.length = length
+		};
 
 		memcpy(&tx_data.addr_trunc, addr_trunc, strlen(addr_trunc));
 		memcpy(&tx_data.data, data, length);
@@ -557,7 +559,7 @@ static u8_t on_received(struct bt_conn *conn,
 void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 {
 	int err;
-	static int index = 0;
+	static int index;
 	char path[BT_MAX_PATH_LEN];
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
@@ -600,7 +602,8 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		device_value_write_result_encode(ble_addr, "2902", path,
 							value, 2);
 		/* memset(&sub_param[param_index], 0,
-		       sizeof(struct bt_gatt_subscribe_params)); */
+		 *       sizeof(struct bt_gatt_subscribe_params));
+		 */
 		sub_conn[param_index] = NULL;
 		if (curr_subs) {
 			curr_subs--;
@@ -654,7 +657,7 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		char msg[64];
 
 		sprintf(msg, "Reached subscription limit of %d",
-			SUBSCRIPTION_LIMIT);               
+			SUBSCRIPTION_LIMIT);
 
 		/* Send error when limit is reached. */
 		device_error_encode(ble_addr, msg);
@@ -690,7 +693,8 @@ int ble_unsubscribe_device(struct bt_conn *conn)
 			bt_gatt_unsubscribe(conn, &sub_param[i]);
 
 			/* memset(&sub_param[i], 0,
-			       sizeof(struct bt_gatt_subscribe_params)); */
+			 * sizeof(struct bt_gatt_subscribe_params));
+			 */
 			sub_conn[i] = NULL;
 			if (curr_subs) {
 				curr_subs--;
@@ -726,8 +730,8 @@ u8_t ble_discover(char *ble_addr, char *type)
 	bt_addr_le_t addr;
 	connected_ble_devices *connection_ptr;
 
-	printk("Discover Addr: %s\n", log_strdup(ble_addr));
-	printk("Discover Type: %s\n", log_strdup(type));
+	LOG_INF("Discover Addr: %s\n", log_strdup(ble_addr));
+	LOG_INF("Discover Type: %s\n", log_strdup(type));
 
 	if (!discover_in_progress) {
 		err = bt_addr_le_from_str(ble_addr, type, &addr);

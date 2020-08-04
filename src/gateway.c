@@ -72,8 +72,9 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 #endif
 #if defined(QUEUE_CHAR_WRITES)
 			else if (cloud_data->write) {
-			  gatt_write(cloud_data->addr, cloud_data->uuid,
-				     cloud_data->data, cloud_data->data_len);
+				gatt_write(cloud_data->addr, cloud_data->uuid,
+					   cloud_data->data,
+					   cloud_data->data_len);
 
 			}
 #endif
@@ -89,7 +90,7 @@ K_THREAD_DEFINE(cloud_proc_thread, CLOUD_PROC_STACK_SIZE,
 		cloud_data_process, NULL, NULL, NULL,
 		CLOUD_PROC_PRIORITY, 0, 0);
 
-static cJSON* json_object_decode(cJSON *obj, const char *str)
+static cJSON *json_object_decode(cJSON *obj, const char *str)
 {
 	return obj ? cJSON_GetObjectItem(obj, str) : NULL;
 }
@@ -135,6 +136,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 	}
 
 	const char *type_str = type_obj->valuestring;
+
 	if (!compare(type_str, "operation")) {
 		ret = -EINVAL;
 		goto exit_handler;
@@ -180,6 +182,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			size_t size = sizeof(struct cloud_data_t);
 			char *mem_ptr = k_malloc(size);
+
 			if (mem_ptr == NULL) {
 				LOG_ERR("Out of memory!");
 				ret = -ENOMEM;
@@ -206,6 +209,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 		desc_len = cJSON_GetArraySize(desc_arr);
 		for (int i = 0; i < desc_len; i++) {
 			cJSON *item = cJSON_GetArrayItem(desc_arr, i);
+
 			desc_buf[i] = item->valueint;
 		}
 
@@ -225,6 +229,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			size_t size = sizeof(struct cloud_data_t);
 			char *mem_ptr = k_malloc(size);
+
 			if (mem_ptr == NULL) {
 				LOG_ERR("Out of memory!");
 				ret = -ENOMEM;
@@ -275,6 +280,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			size_t size = sizeof(struct cloud_data_t);
 			char *mem_ptr = k_malloc(size);
+
 			if (mem_ptr == NULL) {
 				LOG_ERR("Out of memory!");
 				ret = -ENOMEM;
