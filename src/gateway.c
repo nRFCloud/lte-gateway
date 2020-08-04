@@ -48,12 +48,18 @@ K_FIFO_DEFINE(cloud_data_fifo);
 
 void cloud_data_process(int unused1, int unused2, int unused3)
 {
+	struct k_mutex lock;
+
+	k_mutex_init(&lock);
+
 	while (1) {
 		struct cloud_data_t *cloud_data = k_fifo_get(&cloud_data_fifo,
 							     K_NO_WAIT);
 
 		if (cloud_data != NULL) {
-			u32_t lock = irq_lock();
+			/* u32_t lock = irq_lock(); */
+			k_mutex_lock(&lock, K_FOREVER);
+
 			if (cloud_data->sub) {
 				ble_subscribe(cloud_data->addr,
 					      cloud_data->uuid,
@@ -72,7 +78,8 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #endif
 			k_free(cloud_data);
-			irq_unlock(lock);
+			/* irq_unlock(lock); */
+			k_mutex_unlock(&lock);
 		}
 		k_sleep(K_MSEC(1000));
 	}

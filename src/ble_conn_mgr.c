@@ -206,7 +206,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 				bt_uuid_get_str(&uuid_handle->uuid_128.uuid,
 						service_uuid, BT_MAX_UUID_LEN);
 				LOG_DBG("service uuid in path %s",
-					service_uuid);
+					log_strdup(service_uuid));
 				break;
 			}
 		}
@@ -224,7 +224,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 	memset(path, 0, BT_MAX_PATH_LEN);
 	memcpy(path, path_str, strlen(path_str));
 
-	LOG_INF("Generated Path: %s", path_str);
+	LOG_DBG("Generated Path: %s", log_strdup(path_str));
 }
 
 int ble_conn_mgr_add_conn(char *addr, char *addr_type)
@@ -426,7 +426,8 @@ int ble_conn_mgr_get_uuid_by_handle(u16_t handle, char *uuid,
 					BT_MAX_UUID_LEN);
 			bt_to_upper(uuid_str, strlen(uuid_str));
 			memcpy(uuid, uuid_str, strlen(uuid_str));
-			LOG_INF("Found UUID: %s For Handle: %d", uuid_str,
+			LOG_DBG("Found UUID: %s For Handle: %d",
+				log_strdup(uuid_str),
 				handle);
 			return 0;
 		}

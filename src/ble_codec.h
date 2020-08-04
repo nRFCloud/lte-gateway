@@ -1,7 +1,6 @@
 #ifndef BLE_CODEC_H_
 #define BLE_CODEC_H_
 
-//#include "ble.h"
 #include "cJSON.h"
 #include "ble_conn_mgr.h"
 

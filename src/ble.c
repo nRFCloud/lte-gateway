@@ -24,6 +24,7 @@
 #define SEND_NOTIFY_STACK_SIZE 2048
 #define SEND_NOTIFY_PRIORITY 9
 #define SUBSCRIPTION_LIMIT 4
+#define NOTIFICATION_QUEUE_LIMIT 10
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
@@ -43,10 +44,18 @@ struct k_work scan_off_work;
 struct k_work ble_device_encode_work;
 struct k_work start_auto_conn_work;
 
-char uuid[BT_MAX_UUID_LEN];
-char path[BT_MAX_PATH_LEN];
+atomic_t queued_notifications = 0;
 
 ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
+
+/* Must be statically allocated */
+/* TODO: The array needs to remain the entire time the sub exists.
+ * Should probably be stored with the conn manager.
+ */
+struct bt_gatt_subscribe_params sub_param[BT_MAX_SUBSCRIBES];
+/* Array of connections corresponding to subscriptions above */
+struct bt_conn *sub_conn[BT_MAX_SUBSCRIBES];
+u8_t curr_subs = 0;
 
 struct rec_data_t {
 	void *fifo_reserved;
@@ -188,6 +197,9 @@ void ble_dm_data_add(struct bt_gatt_dm *dm)
 /*Thread responsible for transfering ble data over MQTT*/
 void send_notify_data(int unused1, int unused2, int unused3)
 {
+	char uuid[BT_MAX_UUID_LEN];
+	char path[BT_MAX_PATH_LEN];
+
 	memset(uuid, 0, BT_MAX_UUID_LEN);
 	memset(path, 0, BT_MAX_PATH_LEN);
 
@@ -197,14 +209,12 @@ void send_notify_data(int unused1, int unused2, int unused3)
 		struct rec_data_t *rx_data = k_fifo_get(&rec_fifo, K_NO_WAIT);
 
 		if (rx_data != NULL) {
-			LOG_DBG("Trunc Addr %s",
-				log_strdup(rx_data->addr_trunc));
-
 			ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc,
 						      &connected_ptr);
 
 			if (rx_data->read) {
-				LOG_DBG("Value Handle %d",
+				LOG_INF("Notify Read: Addr %s Handle %d",
+					log_strdup(rx_data->addr_trunc),
 					rx_data->read_params.single.handle);
 
 				ble_conn_mgr_get_uuid_by_handle(
@@ -219,7 +229,8 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					uuid, path, ((char *)rx_data->data),
 					rx_data->length);
 			} else {
-				LOG_DBG("Value Handle %d",
+				LOG_INF("Notify Change: Addr %s Handle %d",
+					log_strdup(rx_data->addr_trunc),
 					rx_data->sub_params.value_handle);
 
 				ble_conn_mgr_get_uuid_by_handle(
@@ -235,8 +246,12 @@ void send_notify_data(int unused1, int unused2, int unused3)
 			}
 
 			k_free(rx_data);
+			atomic_dec(&queued_notifications);
+
+		} else {
+			/* no pending notifications, so let others take turn */
+			k_sleep(K_MSEC(10));
 		}
-		k_sleep(K_MSEC(50));
 	}
 }
 
@@ -345,9 +360,12 @@ static u8_t gatt_read_callback(struct bt_conn *conn, u8_t err,
 		char *mem_ptr = k_malloc(size);
 
 		if (mem_ptr == NULL) {
-			LOG_ERR("Out of memory error in gatt_read_callback()");
+			LOG_ERR("Out of memory error in gatt_read_callback(): "
+				"%d queued notifications",
+				atomic_get(&queued_notifications));
 			ret = BT_GATT_ITER_STOP;
 		} else {
+			atomic_inc(&queued_notifications);
 			memcpy(mem_ptr, &read_data, size);
 			k_fifo_put(&rec_fifo, mem_ptr);
 		}
@@ -473,9 +491,15 @@ static u8_t on_received(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
+/*	static atomic_t busy = 0;
+
+	if (!atomic_cas(&busy, 0, 1)) {
+		LOG_WRN("on_received() busy!");
+		return ret;
+	} */
 	u32_t lock = irq_lock();
 
-	if ((length > 0) && (data != NULL) && ok_to_send) {
+	if ((length > 0) && (data != NULL)) {
 
 		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
@@ -483,8 +507,6 @@ static u8_t on_received(struct bt_conn *conn,
 		addr_trunc[BT_ADDR_LE_DEVICE_LEN] = 0;
 
 		bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
-
-		LOG_DBG("Received on addr %s", log_strdup(addr_trunc));
 
 		struct rec_data_t tx_data = { .length = length };
 
@@ -495,24 +517,38 @@ static u8_t on_received(struct bt_conn *conn,
 
 		size_t size = sizeof(struct rec_data_t);
 
-		char *mem_ptr = k_malloc(size);
+		if (ok_to_send &&
+		    (atomic_get(&queued_notifications) <
+		     NOTIFICATION_QUEUE_LIMIT)) {
+			char *mem_ptr = k_malloc(size);
 
-		if (mem_ptr == NULL) {
-			LOG_ERR("Out of memory error in on_received()");
-			ret = BT_GATT_ITER_STOP;
+			if (mem_ptr == NULL) {
+				LOG_ERR("Out of memory error in on_received(): "
+					"%d queued notifications",
+					atomic_get(&queued_notifications));
+				ret = BT_GATT_ITER_STOP;
+			} else {
+				atomic_inc(&queued_notifications);
+				memcpy(mem_ptr, &tx_data, size);
+				k_fifo_put(&rec_fifo, mem_ptr);
+			}
+
+			/* Timer to limit the amount of data we can send. Some
+			 * characteristics notify faster than can be processed.
+			 */
+			k_timer_start(&rec_timer, K_MSEC(50), K_SECONDS(0));
+			ok_to_send = false;
 		} else {
-			memcpy(mem_ptr, &tx_data, size);
-			k_fifo_put(&rec_fifo, mem_ptr);
+			LOG_INF("Dropping Notify Read: Addr %s Handle %d "
+				"Queued %d",
+				log_strdup(tx_data.addr_trunc),
+				tx_data.sub_params.value_handle,
+				atomic_get(&queued_notifications));
 		}
-
-		/* Timer to limit the amount of data we can send. Some
-		 * characteristics notify faster than can be processed.
-		 */
-		k_timer_start(&rec_timer, K_MSEC(200), K_SECONDS(0));
-		ok_to_send = false;
 	}
 
 	irq_unlock(lock);
+	/* atomic_clear(&busy); */
 
 	return ret;
 }
@@ -522,12 +558,7 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 {
 	int err;
 	static int index = 0;
-	static u8_t curr_subs = 0;
-	/* Must be statically allocated */
-	/* TODO: The param needs to remain the entire time the sub exists.
-	 * Should probably be stored with the conn manager.
-	 */
-	static struct bt_gatt_subscribe_params param[BT_MAX_SUBSCRIBES];
+	char path[BT_MAX_PATH_LEN];
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
 	connected_ble_devices *connected_ptr;
@@ -557,9 +588,9 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 
 	if (subscribed && (value_type == 0)) {
 		/* If subscribed then unsubscribe. */
-		bt_gatt_unsubscribe(conn, &param[param_index]);
-		LOG_INF("Unsubscribed to %d at index %d", handle + 1,
-			param_index);
+		bt_gatt_unsubscribe(conn, &sub_param[param_index]);
+		LOG_INF("Unsubscribe: Addr %s Handle %d idx %d",
+			log_strdup(ble_addr), handle, param_index);
 		ble_conn_mgr_remove_subscribed(handle, connected_ptr);
 
 		u8_t value[2] = { 0, 0 };
@@ -568,27 +599,38 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 							value, 2);
 		device_value_write_result_encode(ble_addr, "2902", path,
 							value, 2);
+		/* memset(&sub_param[param_index], 0,
+		       sizeof(struct bt_gatt_subscribe_params)); */
+		sub_conn[param_index] = NULL;
 		if (curr_subs) {
 			curr_subs--;
 		}
 	} else if (subscribed && (value_type != 0)) {
-		LOG_INF("Already subscribed to %d for %s as %u", handle + 1,
-			log_strdup(ble_addr), value_type);
+		/* this means if the cloud wants to change a subscription
+		 * between notify and indicate, it must unsubscribe first
+		 */
+		LOG_INF("Subscribe Dup: Addr %s Handle %d Type %s (%d)",
+			log_strdup(ble_addr), handle,
+			(value_type == BT_GATT_CCC_NOTIFY) ?
+			"Notify" : "Indicate", value_type);
 	} else if (value_type == 0) {
-		LOG_INF("Ignoring unsubscribe to %d for %s as %u", handle + 1,
-			log_strdup(ble_addr), value_type);
+		LOG_INF("Unsubscribe N/A: Addr %s Handle %d",
+			log_strdup(ble_addr), handle);
 	} else if (curr_subs < SUBSCRIPTION_LIMIT) {
-		param[index].notify = on_received;
-		param[index].value = value_type;
-		param[index].value_handle = handle;
-		param[index].ccc_handle = handle + 1;
+		sub_param[index].notify = on_received;
+		sub_param[index].value = value_type;
+		sub_param[index].value_handle = handle;
+		sub_param[index].ccc_handle = handle + 1;
+		sub_conn[index] = conn;
 
-		LOG_INF("Subscribing Address: %s", log_strdup(ble_addr));
-		LOG_INF("Value Handle: %d", param[index].value_handle);
-		LOG_INF("CCC Handle: %d", param[index].ccc_handle);
-		LOG_INF("Value: %d", param[index].value);
+		LOG_INF("Subscribe: Addr %s Handle %d Type %s (%d)"
+			" Num %u Idx %u",
+			log_strdup(ble_addr), handle,
+			(value_type == BT_GATT_CCC_NOTIFY) ?
+			"Notify" : "Indicate", value_type,
+			curr_subs + 1, index);
 
-		err = bt_gatt_subscribe(conn, &param[index]);
+		err = bt_gatt_subscribe(conn, &sub_param[index]);
 		if (err) {
 			LOG_ERR("Subscribe failed (err %d)", err);
 			goto end;
@@ -606,20 +648,69 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 
 		ble_conn_mgr_set_subscribed(handle, index,
 					    connected_ptr);
-		LOG_INF("Subscribed to %d, curr_subs %u, index %d",
-			handle + 1, curr_subs, index);
 		curr_subs++;
 		index++;
 	} else {
+		char msg[64];
+
+		sprintf(msg, "Reached subscription limit of %d",
+			SUBSCRIPTION_LIMIT);               
+
 		/* Send error when limit is reached. */
-		device_error_encode(ble_addr,
-				    "Reached subscription limit of 4");
+		device_error_encode(ble_addr, msg);
 	}
 
 end:
 	if (conn != NULL) {
 		bt_conn_unref(conn);
 	}
+}
+
+int ble_unsubscribe_device(struct bt_conn *conn)
+{
+	u16_t handle;
+	int i;
+	int count = 0;
+	connected_ble_devices *connected_ptr;
+	char addr[BT_ADDR_LE_STR_LEN];
+	char addr_trunc[BT_ADDR_STR_LEN];
+
+	if (conn == NULL) {
+		return -EINVAL;
+	}
+	bt_addr_le_to_str(bt_conn_get_dst(conn),
+			  addr, sizeof(addr));
+	memcpy(addr_trunc, addr, BT_ADDR_LE_DEVICE_LEN);
+	addr_trunc[BT_ADDR_LE_DEVICE_LEN] = 0;
+	bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
+
+	for (i = 0; i < BT_MAX_SUBSCRIBES; i++) {
+		if (conn == sub_conn[i]) {
+			handle = sub_param[i].value_handle;
+			bt_gatt_unsubscribe(conn, &sub_param[i]);
+
+			/* memset(&sub_param[i], 0,
+			       sizeof(struct bt_gatt_subscribe_params)); */
+			sub_conn[i] = NULL;
+			if (curr_subs) {
+				curr_subs--;
+			}
+
+			if (!ble_conn_mgr_get_conn_by_addr(addr_trunc,
+							   &connected_ptr)) {
+				LOG_INF("Unsubscribe: Addr %s Handle %d Idx %d",
+					log_strdup(addr_trunc), handle, i);
+				ble_conn_mgr_remove_subscribed(handle,
+							       connected_ptr);
+				count++;
+			} else {
+				LOG_ERR("Could not find connected_ble_devices"
+					" for Addr %s", log_strdup(addr_trunc));
+			}
+		}
+	}
+	LOG_INF("Unsubscribed %d handles", count);
+	return 0;
 }
 
 static struct bt_gatt_dm_cb discovery_cb = {
@@ -699,6 +790,8 @@ u8_t disconnect_device_by_addr(char *ble_addr, char *type)
 		return 1;
 	}
 
+	ble_unsubscribe_device(conn);
+
 	/* Disconnect device. */
 	bt_conn_disconnect(conn, 0x16);
 	bt_conn_unref(conn);
@@ -772,6 +865,8 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 	char addr[BT_ADDR_LE_STR_LEN];
 	char addr_trunc[BT_ADDR_STR_LEN];
 	connected_ble_devices *connection_ptr;
+
+	ble_unsubscribe_device(conn);
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
