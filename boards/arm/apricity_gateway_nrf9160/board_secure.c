@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Nordic Semiconductor ASA
+ * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
  */
@@ -81,7 +81,7 @@ static int power_mgmt_init(void)
 	return 0;
 }
 
-static int thingy91_board_init(struct device *dev)
+static int apricity_gateway_board_init(struct device *dev)
 {
 	int err;
 
@@ -94,4 +94,5 @@ static int thingy91_board_init(struct device *dev)
 	return 0;
 }
 
-SYS_INIT(thingy91_board_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+SYS_INIT(apricity_gateway_board_init, APPLICATION,
+	CONFIG_APPLICATION_INIT_PRIORITY);

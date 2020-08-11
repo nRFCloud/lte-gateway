@@ -8,7 +8,8 @@
 #include <kernel_structs.h>
 #include <stdio.h>
 #include <string.h>
-#include <drivers/gps.h>
+#include <device.h>
+#include <drivers/uart.h>
 #include <drivers/sensor.h>
 #include <console/console.h>
 #include <power/reboot.h>
@@ -22,9 +23,8 @@
 #include <net/cloud.h>
 #include <net/socket.h>
 #include <net/nrf_cloud.h>
-#if defined(CONFIG_NRF_CLOUD_AGPS)
-#include <net/nrf_cloud_agps.h>
-#endif
+
+#include <fw_info.h>
 
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
@@ -85,6 +85,23 @@ defined(CONFIG_NRF_CLOUD_PROVISION_CERTIFICATES)
  */
 #define CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS K_MINUTES(5)
 
+/* uncomment below to help with diagnosing UART DTS issues */
+/* #define DEBUG_UART_PINS */
+#if defined(DEBUG_UART_PINS)
+#define UART0 DT_NODELABEL(uart0)
+#define UART0_TX DT_PROP(UART0, tx_pin)
+#define UART0_RX DT_PROP(UART0, rx_pin)
+#define UART0_RTS DT_PROP(UART0, rts_pin)
+#define UART0_CTS DT_PROP(UART0, cts_pin)
+#define UART0_SPEED DT_PROP(UART0, current_speed)
+#define UART1 DT_NODELABEL(uart1)
+#define UART1_TX DT_PROP(UART1, tx_pin)
+#define UART1_RX DT_PROP(UART1, rx_pin)
+#define UART1_RTS DT_PROP(UART1, rts_pin)
+#define UART1_CTS DT_PROP(UART1, cts_pin)
+#define UART1_SPEED DT_PROP(UART1, current_speed)
+#endif
+
 struct rsrp_data {
 	u16_t value;
 	u16_t offset;
@@ -139,6 +156,10 @@ static void app_disconnect(void);
 static K_SEM_DEFINE(bsdlib_initialized, 0, 1);
 static K_SEM_DEFINE(lte_connected, 0, 1);
 static K_SEM_DEFINE(cloud_ready_to_connect, 0, 1);
+#endif
+
+#ifdef CONFIG_MODEM_INFO
+	static struct modem_param_info modem_param;
 #endif
 
 enum error_type {
@@ -633,12 +654,51 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #if defined(CONFIG_LTE_LINK_CONTROL)
 		lte_lc_power_off();
 #endif
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	default:
 		LOG_WRN("Unknown cloud event type: %d", evt->type);
 		break;
 	}
+}
+
+void log_fw_info(void)
+{
+	/* TODO: debug this */
+	/* this does not work: fw_info *info = fw_info_find(0); */
+	extern struct fw_info m_firmware_info;
+	struct fw_info *info = &m_firmware_info;
+
+	if (info) {
+		LOG_INF("Ver:%u, Size:%u, Start:0x%08u, Boot:0x%08u, Valid:%u",
+			info->version, info->size, info->address,
+			info->boot_address, info->valid);
+	}
+}
+
+void log_modem_info(void)
+{
+#ifdef CONFIG_MODEM_INFO
+	modem_info_init();
+	modem_info_params_init(&modem_param);
+
+	int ret = modem_info_params_get(&modem_param);
+
+	if (ret) {
+		LOG_ERR("Error getting modem info: %d", ret);
+	} else {
+		if (modem_param.device.modem_fw.type == MODEM_INFO_FW_VERSION) {
+			LOG_INF("Modem fw version: %s",
+				modem_param.device.modem_fw.value_string);
+		} else {
+			LOG_INF("Modem fw type %u val %u",
+				modem_param.device.modem_fw.type,
+				modem_param.device.modem_fw.value);
+		}
+	}
+#endif
 }
 
 void connection_evt_handler(const struct cloud_event *const evt)
@@ -653,6 +713,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		}
 		return;
 	} else if (evt->type == CLOUD_EVT_CONNECTED) {
+		log_modem_info();
 		LOG_INF("CLOUD_EVT_CONNECTED");
 		k_delayed_work_cancel(&cloud_reboot_work);
 		k_sem_take(&cloud_disconnected, K_NO_WAIT);
@@ -773,7 +834,6 @@ connected:
 	return 0;
 }
 
-
 void handle_bsdlib_init_ret(void)
 {
 	#if defined(CONFIG_BSD_LIBRARY)
@@ -783,17 +843,23 @@ void handle_bsdlib_init_ret(void)
 	switch (ret) {
 	case MODEM_DFU_RESULT_OK:
 		LOG_INF("MODEM UPDATE OK. Will run new firmware");
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	case MODEM_DFU_RESULT_UUID_ERROR:
 	case MODEM_DFU_RESULT_AUTH_ERROR:
 		LOG_ERR("MODEM UPDATE ERROR %d. Will run old firmware", ret);
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	case MODEM_DFU_RESULT_HARDWARE_ERROR:
 	case MODEM_DFU_RESULT_INTERNAL_ERROR:
 		LOG_ERR("MODEM UPDATE FATAL ERROR %d. Modem failiure", ret);
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#endif
 		break;
 	default:
 		break;
@@ -801,11 +867,46 @@ void handle_bsdlib_init_ret(void)
 	#endif /* CONFIG_BSD_LIBRARY */
 }
 
+static void log_uart_pins(void)
+{
+#if defined(DEBUG_UART_PINS)
+	struct uart_config config;
+	struct device *uart_0_dev = device_get_binding("UART_0");
+	struct device *uart_1_dev = device_get_binding("UART_1");
+
+	LOG_INF("UART0 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
+	     UART0_TX, UART0_RX, UART0_RTS, UART0_CTS, UART0_SPEED);
+	LOG_INF("UART1 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
+	     UART1_TX, UART1_RX, UART1_RTS, UART1_CTS, UART1_SPEED);
+	k_sleep(K_MSEC(50));
+
+	uart_config_get(uart_0_dev, &config);
+	LOG_INF("UART0 speed:%u, flow:%d", config.baudrate,
+		config.flow_ctrl);
+	k_sleep(K_MSEC(50));
+
+	uart_config_get(uart_1_dev, &config);
+	LOG_INF("UART1 speed:%u, flow:%d", config.baudrate,
+		config.flow_ctrl);
+
+	LOG_INF("Reset pin:%d",
+		CONFIG_BOARD_NRF52840_GPIO_RESET_PIN);
+#endif
+}
+
 void main(void)
 {
-	LOG_INF("Gateway started");
+	LOG_INF("*******************************");
+	LOG_INF("Apricity Gateway Starting Up...");
+	log_fw_info();
+	log_uart_pins();
+	LOG_INF("*******************************");
 
-    ble_init();
+#if defined(CONFIG_USE_UI_MODULE)
+	ui_init(NULL);
+#endif
+
+	ble_init();
 
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
@@ -830,10 +931,6 @@ void main(void)
 				CONFIG_CLOUD_CONNECT_RETRY_DELAY);
 		k_sleep(K_SECONDS(CONFIG_CLOUD_CONNECT_RETRY_DELAY));
 	}
-
-#if defined(CONFIG_USE_UI_MODULE)
-	ui_init(NULL);
-#endif
 
 #if defined(CONFIG_LWM2M_CARRIER)
 	LOG_INF("Waiting for LWM2M carrier to complete initialization...");

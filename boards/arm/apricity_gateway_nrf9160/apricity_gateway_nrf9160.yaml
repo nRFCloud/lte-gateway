@@ -1,11 +1,11 @@
-identifier: thingy91_nrf9160ns
-name: THINGY91-nRF9160-Non-Secure
+identifier: apricity_gateway_nrf9160
+name: Apricity-Gateway-NRF9160
 type: mcu
 arch: arm
 toolchain:
   - gnuarmemb
   - zephyr
-ram: 128
+ram: 64
 flash: 256
 supported:
   - i2c

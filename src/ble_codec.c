@@ -71,7 +71,6 @@ u8_t device_found_encode(u8_t num_devices_found)
         cJSON *devices = cJSON_CreateArray();
         cJSON *device = NULL;
         cJSON *address = NULL;
-        cJSON *rssi_json = NULL;
 
         if (root_obj == NULL) {
                 return -ENOMEM;

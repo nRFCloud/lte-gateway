@@ -23,7 +23,7 @@ typedef struct
 
 static desired_conns desired_connection[CONFIG_BT_MAX_CONN];
 
-#define CONN_MGR_STACK_SIZE 1600
+#define CONN_MGR_STACK_SIZE 3072
 #define CONN_MGR_PRIORITY 1
 
 void connection_manager(int unused1, int unused2, int unused3)
@@ -341,6 +341,7 @@ u8_t ble_conn_mgr_rediscover(char* addr)
             connected_ble_ptr->num_pairs = 0;
         }
 
+	return err;
 }
 
 u8_t ble_conn_mgr_remove_conn(char* addr)
@@ -385,10 +386,6 @@ u8_t ble_conn_mgr_get_free_conn(connected_ble_devices** conn_ptr)
 
 u8_t ble_conn_mgr_get_conn_by_addr(char* addr, connected_ble_devices** conn_ptr)
 {
-
-        int err = 0;
-
-
         for(int i = 0; i<CONFIG_BT_MAX_CONN; i++)
         {
                 if(!strcmp(addr, connected_ble_device[i].addr))
@@ -518,7 +515,7 @@ u8_t ble_conn_mgr_get_handle_by_uuid(u16_t* handle, char* uuid, connected_ble_de
         return 1;
 }
 
-u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u16_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service)
+u8_t ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service)
 {
 
         int err = 0;
@@ -534,8 +531,7 @@ u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u16_t handle, u8_t path_de
         LOG_INF("Handle Added: %d", handle);
 
         if (!uuid) {
-
-                return NULL;
+                return 0;
         }
 
         switch (uuid->type) {
@@ -554,8 +550,7 @@ u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u16_t handle, u8_t path_de
                 LOG_DBG("\tCONN MGR Characteristic: 0x%s",str);
                 break;
         default:
-
-                return NULL;
+                return 0;
         }
 
         conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].properties = properties;

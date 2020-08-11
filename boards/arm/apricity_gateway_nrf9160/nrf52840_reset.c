@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Nordic Semiconductor ASA.
+ * Copyright (c) 2020 Nordic Semiconductor ASA.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,7 +8,12 @@
 #include <drivers/uart.h>
 #include <device.h>
 
-#define RESET_PIN 13
+#define RESET_PIN CONFIG_BOARD_NRF52840_GPIO_RESET_PIN
+
+
+/* TODO: need to resolve header issue -- drivers/uart.h is found
+   in modules, not in zephyr as it should be */
+extern int uart_fifo_read(struct device *h4, u8_t *rx_data, const int size);
 
 int bt_hci_transport_setup(struct device *h4)
 {

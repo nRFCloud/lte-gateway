@@ -51,7 +51,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u16_t handle, c
 u8_t ble_conn_mgr_remove_conn(char* addr);
 u8_t ble_conn_mgr_get_free_conn(connected_ble_devices** conn_ptr);
 u8_t ble_conn_mgr_get_conn_by_addr(char* addr, connected_ble_devices** conn_ptr);
-u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u16_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service);
+u8_t ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service);
 u8_t ble_conn_mgr_get_uuid_by_handle(u16_t handle, char* uuid , connected_ble_devices* conn_ptr);
 u8_t ble_conn_mgr_get_handle_by_uuid(u16_t* handle, char* uuid , connected_ble_devices* conn_ptr);
 void ble_conn_mgr_init();
@@ -60,6 +60,7 @@ u8_t ble_conn_set_disconnected(char* addr);
 u8_t ble_conn_mgr_set_subscribed(u16_t handle, u8_t sub_index, connected_ble_devices* conn_ptr);
 u8_t ble_conn_mgr_remove_subscribed(u16_t handle, connected_ble_devices* conn_ptr);
 u8_t ble_conn_mgr_get_subscribed(u16_t handle, connected_ble_devices* conn_ptr, bool* status, u8_t* sub_index);
+void ble_conn_mgr_update_desired(char* addr, u8_t index);
 void ble_conn_mgr_clear_desired();
 void ble_conn_mgr_update_connections();
 u8_t ble_conn_mgr_rediscover(char* addr);
