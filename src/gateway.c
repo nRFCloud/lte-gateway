@@ -33,7 +33,7 @@ LOG_MODULE_REGISTER(gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
  */
 /* #define QUEUE_CHAR_WRITES */
 
-u8_t value_buf[256];
+static u8_t value_buf[256];
 
 struct cloud_data_t {
 	void *fifo_reserved;

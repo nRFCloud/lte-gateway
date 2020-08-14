@@ -38,14 +38,14 @@ static void process_connection(int i)
 		ble_add_to_whitelist(dev->addr, dev->addr_type);
 		dev->added_to_whitelist = true;
 		/* Maybe not the right spot to send this. IDK. */
-		device_shadow_data_encode(dev->addr, true, false);
+		update_shadow(dev->addr, true, false);
 		LOG_INF("Device added to whitelist.");
 	}
 
 	/* Not connected. Update the shadow. */
 	if (dev->connected && !dev->shadow_updated) {
 		/* Maybe not the right spot to send this. IDK. */
-		device_shadow_data_encode(dev->addr, false, true);
+		update_shadow(dev->addr, false, true);
 		dev->shadow_updated = true;
 	}
 
@@ -69,12 +69,12 @@ static void process_connection(int i)
 		u32_t lock = irq_lock();
 
 		dev->encode_discovered = false;
-		device_discovery_encode(&connected_ble_device[i]);
+		device_discovery_send(&connected_ble_device[i]);
 
 		irq_unlock(lock);
 
 		/* Maybe not the right spot to send this. IDK. */
-		device_shadow_data_encode(dev->addr, false, true);
+		update_shadow(dev->addr, false, true);
 	}
 }
 

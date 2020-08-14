@@ -25,16 +25,22 @@
 #define SEND_NOTIFY_PRIORITY 9
 #define SUBSCRIPTION_LIMIT 4
 #define NOTIFICATION_QUEUE_LIMIT 10
+#define MAX_BUF_SIZE 11000
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
 
-bool discover_in_progress = false;
-bool ok_to_send = true;
-bool scan_waiting = false;
+static char buffer[MAX_BUF_SIZE];
+static struct ble_msg output = {
+	.buf = buffer,
+	.len = MAX_BUF_SIZE
+};
 
-int num_devices_found;
-u8_t read_buf[READ_BUF_SIZE];
+static bool discover_in_progress = false;
+static bool ok_to_send = true;
+static bool scan_waiting = false;
+
+static int num_devices_found;
 
 struct k_timer rec_timer;
 struct k_timer scan_timer;
@@ -44,7 +50,7 @@ struct k_work scan_off_work;
 struct k_work ble_device_encode_work;
 struct k_work start_auto_conn_work;
 
-atomic_t queued_notifications;
+static atomic_t queued_notifications;
 
 ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 
@@ -52,10 +58,10 @@ ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 /* TODO: The array needs to remain the entire time the sub exists.
  * Should probably be stored with the conn manager.
  */
-struct bt_gatt_subscribe_params sub_param[BT_MAX_SUBSCRIBES];
+static struct bt_gatt_subscribe_params sub_param[BT_MAX_SUBSCRIBES];
 /* Array of connections corresponding to subscriptions above */
-struct bt_conn *sub_conn[BT_MAX_SUBSCRIBES];
-u8_t curr_subs;
+static struct bt_conn *sub_conn[BT_MAX_SUBSCRIBES];
+static u8_t curr_subs;
 
 struct rec_data_t {
 	void *fifo_reserved;
@@ -227,7 +233,9 @@ void send_notify_data(int unused1, int unused2, int unused3)
 
 				device_chrc_read_encode(rx_data->addr_trunc,
 					uuid, path, ((char *)rx_data->data),
-					rx_data->length);
+					rx_data->length, &output);
+				g2c_send(output.buf);
+
 			} else {
 				LOG_INF("Notify Change: Addr %s Handle %d",
 					log_strdup(rx_data->addr_trunc),
@@ -242,7 +250,8 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					path, true);
 				device_value_changed_encode(rx_data->addr_trunc,
 					uuid, path, ((char *)rx_data->data),
-					rx_data->length);
+					rx_data->length, &output);
+				g2c_send(output.buf);
 			}
 
 			k_free(rx_data);
@@ -598,9 +607,13 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		u8_t value[2] = { 0, 0 };
 
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-							value, 2);
+							value, 2, &output);
+		g2c_send(buffer);
+
 		device_value_write_result_encode(ble_addr, "2902", path,
-							value, 2);
+							value, 2, &output);
+		g2c_send(output.buf);
+
 		/* memset(&sub_param[param_index], 0,
 		 *       sizeof(struct bt_gatt_subscribe_params));
 		 */
@@ -645,9 +658,12 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		};
 
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-							value, 2);
+							value, 2, &output);
+		g2c_send(output.buf);
+
 		device_value_write_result_encode(ble_addr, "2902", path,
-							value, 2);
+							value, 2, &output);
+		g2c_send(output.buf);
 
 		ble_conn_mgr_set_subscribed(handle, index,
 					    connected_ptr);
@@ -660,7 +676,8 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 			SUBSCRIPTION_LIMIT);
 
 		/* Send error when limit is reached. */
-		device_error_encode(ble_addr, msg);
+		device_error_encode(ble_addr, msg, &output);
+		g2c_send(output.buf);
 	}
 
 end:
@@ -803,6 +820,12 @@ u8_t disconnect_device_by_addr(char *ble_addr, char *type)
 	return err;
 }
 
+void update_shadow(char *ble_address, bool connecting, bool connected)
+{
+	device_shadow_data_encode(ble_address, connecting, connected, &output);
+	shadow_publish(output.buf);
+}
+
 void auto_conn_start_work_handler(struct k_work *work)
 {
 	int err;
@@ -855,8 +878,11 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 
 	LOG_INF("Connected: %s", log_strdup(addr));
 
-	device_connect_result_encode(addr_trunc, true);
-	device_shadow_data_encode(addr_trunc, false, true);
+	device_connect_result_encode(addr_trunc, true, &output);
+	g2c_send(output.buf);
+
+	update_shadow(addr_trunc, false, true);
+
 	ble_conn_set_connected(addr_trunc, true);
 	ble_remove_from_whitelist(addr_trunc, connection_ptr->addr_type);
 
@@ -879,8 +905,11 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 
 	bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
-	device_disconnect_result_encode(addr_trunc, false);
-	device_shadow_data_encode(addr_trunc, false, false);
+	device_disconnect_result_encode(addr_trunc, false, &output);
+	g2c_send(output.buf);
+
+	update_shadow(addr_trunc, false, false);
+
 	ble_conn_set_disconnected(addr_trunc);
 
 	LOG_INF("Disconnected: %s (reason 0x%02x)", log_strdup(addr), reason);
@@ -931,7 +960,8 @@ static bool data_cb(struct bt_data *data, void *user_data)
 
 void ble_device_found_enc_handler(struct k_work *work)
 {
-	device_found_encode(num_devices_found);
+	device_found_encode(num_devices_found, &output);
+	g2c_send(output.buf);
 }
 
 K_WORK_DEFINE(ble_device_encode_work, ble_device_found_enc_handler);
@@ -1053,6 +1083,26 @@ void ble_remove_from_whitelist(char *addr_str, char *conn_type)
 
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
+}
+
+int device_discovery_send(connected_ble_devices *conn_ptr)
+{
+	int ret = device_discovery_encode(conn_ptr, &output);
+
+	if (!ret) {
+		/* Add the remaing brackets to the JSON string
+		 * that was assembled.
+		 */
+		strcat(output.buf, "}}}}}");
+
+		LOG_DBG("JSON Size: %d", strlen(output.buf));
+
+		/* TODO: Move out of decode. */
+		g2c_send(output.buf);
+	}
+	memset(output.buf, 0, output.len);
+
+	return ret;
 }
 
 void scan_start(void)
