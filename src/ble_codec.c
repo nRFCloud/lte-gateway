@@ -39,6 +39,7 @@ static bool first_chrc = true;
 } while (0)
 
 #define CJADD cJSON_AddItemToObject
+#define CJADDREF cJSON_AddItemReferenceToObject
 #define CJADDBOOL cJSON_AddBoolToObject
 #define CJADDNUM cJSON_AddNumberToObject
 #define CJPRINT cJSON_PrintPreallocated
@@ -130,10 +131,12 @@ int device_error_encode(char *ble_address, char *error_msg,
 	/* TODO: Front end doesn't handle error messages yet.
 	 * This format may change.
 	 */
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *error = cJSON_CreateObject();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (error == NULL)) {
@@ -142,40 +145,40 @@ int device_error_encode(char *ble_address, char *error_msg,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
-
-	char str[64];
-
 	CJADDSTR(root_obj, "timestamp", get_time_str(str, sizeof(str)));
 
 	CJADDSTR(event, "type", "error");
-	CJADD(event, "device", device);
-	CJADD(event, "error", error);
-
 	CJADDSTR(error, "description", error_msg);
 	CJADDSTR(device, "deviceAddress", ble_address);
 
+	/* use references so deleting is cleaner below; must be last
+	 * operation on any given cJSON object
+	 */
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "error", error);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(error);
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_found_encode(u8_t num_devices_found, struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *devices = cJSON_CreateArray();
 	cJSON *device = NULL;
 	cJSON *address = NULL;
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (devices == NULL)) {
 		goto cleanup;
@@ -183,64 +186,66 @@ int device_found_encode(u8_t num_devices_found, struct ble_msg *msg)
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "scan_result");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
-
 	CJADDSTR(event, "subType", "instant");
-	CJADD(event, "devices", devices);
+	CJADDTRUE(event, "timeout");
 
 	for (int i = 0; i < num_devices_found; i++) {
 		LOG_INF("Adding device %s RSSI: %d\n",
 		       ble_scanned_device[i].addr, ble_scanned_device[i].rssi);
-		CJADDARROBJ(devices, device);
-		/* TODO: Update for beacons */
-		CJADDSTR(device, "deviceType", "BLE");
-		CJCREATE(address);
-		CJADD(device, "address", address);
-		CJADDSTR(address, "address", ble_scanned_device[i].addr);
-		CJADDSTR(address, "type", ble_scanned_device[i].type);
 
+		/* TODO: Update for beacons */
+		CJADDARROBJ(devices, device);
+
+		CJADDSTR(device, "deviceType", "BLE");
+		CJADDNUM(device, "rssi", ble_scanned_device[i].rssi);
 		if (strlen(ble_scanned_device[i].name) > 0) {
 			CJADDSTR(device, "name", ble_scanned_device[i].name);
 		} else {
 			CJADDNULL(device, "name");
 		}
 
-		/* TODO: cJSON print numbers doesn't work? */
-		CJADDNUM(device, "rssi", ble_scanned_device[i].rssi);
+		CJCREATE(address);
+		CJADDSTR(address, "address", ble_scanned_device[i].addr);
+		CJADDSTR(address, "type", ble_scanned_device[i].type);
+
+		CJADD(device, "address", address);
+		address = NULL;
 	}
-	CJADDTRUE(event, "timeout");
+
 	/* Figure out a messageId:
 	 * cJSON_AddItemToObject(root_obj, "messageId", cJSON_CreateNumber(1));
 	 */
+	CJADDREF(event, "devices", devices);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
+	if (address) {
+		cJSON_Delete(address);
+	}
 	cJSON_Delete(devices);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_connect_result_encode(char *ble_address, bool conn_status,
 				 struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *status = cJSON_CreateObject();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (status == NULL)) {
@@ -249,29 +254,23 @@ int device_connect_result_encode(char *ble_address, bool conn_status,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_connect_result");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
-	CJADD(device, "status", status);
 	CJADDBOOL(status, "connected", conn_status);
+
+	CJADDREF(device, "address", address);
+	CJADDREF(device, "status", status);
+	CJADDREF(event, "device", device);
+	CJADDREF(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(status);
@@ -279,17 +278,19 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_disconnect_result_encode(char *ble_address, bool conn_status,
 				    struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *status = cJSON_CreateObject();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (status == NULL)) {
@@ -298,29 +299,23 @@ int device_disconnect_result_encode(char *ble_address, bool conn_status,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_disconnect");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
-	CJADD(device, "status", status);
 	CJADDBOOL(status, "connected", conn_status);
+
+	CJADDREF(device, "status", status);
+	CJADDREF(device, "address", address);
+	CJADDREF(event, "device", device);
+	CJADDREF(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(status);
@@ -328,19 +323,21 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 				char *value, u16_t value_length,
 				struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *chrc = cJSON_CreateObject();
 	cJSON *value_arr = cJSON_CreateArray();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (chrc == NULL) || (value_arr == NULL)) {
@@ -349,38 +346,32 @@ int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_characteristic_value_changed");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
 	/* TODO: Get Type; */
 	CJADDSTR(address, "type", "random");
 
-	CJADD(event, "characteristic", chrc);
 	CJADDSTR(chrc, "uuid", uuid);
 	CJADDSTR(chrc, "path", path);
-	CJADD(chrc, "value", value_arr);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
+	CJADDREF(device, "address", address);
+	CJADDREF(chrc, "value", value_arr);
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "characteristic", chrc);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(value_arr);
@@ -389,19 +380,21 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 				     char *value, u16_t value_length,
 				     struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *desc = cJSON_CreateObject();
 	cJSON *value_arr = cJSON_CreateArray();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (desc == NULL) || (value_arr == NULL)) {
@@ -410,37 +403,32 @@ int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_descriptor_value_write_result");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
 	/* TODO: Get Type; */
 	CJADDSTR(address, "type", "random");
-	CJADD(event, "descriptor", desc);
+
 	CJADDSTR(desc, "uuid", uuid);
 	CJADDSTR(desc, "path", path);
-	CJADD(desc, "value", value_arr);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
+	CJADDREF(device, "address", address);
+	CJADDREF(desc, "value", value_arr);
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "descriptor", desc);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(value_arr);
@@ -449,7 +437,7 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
@@ -457,12 +445,14 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 					   u16_t value_length,
 					   struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *desc = cJSON_CreateObject();
 	cJSON *value_arr = cJSON_CreateArray();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (desc == NULL) || (value_arr == NULL)) {
@@ -471,38 +461,32 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADD(root_obj, "event", event);
 	CJADDNULL(root_obj, "requestId");
 
 	CJADDSTR(event, "type", "device_descriptor_value_changed");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
 	/* TODO: Get Type; */
 	CJADDSTR(address, "type", "random");
 
-	CJADD(event, "descriptor", desc);
 	CJADDSTR(desc, "uuid", uuid);
 	CJADDSTR(desc, "path", path);
-	CJADD(desc, "value", value_arr);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
+	CJADDREF(device, "address", address);
+	CJADDREF(desc, "value", value_arr);
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "descriptor", desc);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(value_arr);
@@ -511,19 +495,21 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 			    char *value, u16_t value_length,
 			    struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *chrc = cJSON_CreateObject();
 	cJSON *value_arr = cJSON_CreateArray();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (chrc == NULL) || (value_arr == NULL)) {
@@ -533,37 +519,31 @@ int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
 	CJADDNULL(root_obj, "requestId");
-	CJADD(root_obj, "event", event);
 
 	CJADDSTR(event, "type", "device_characteristic_value_read_result");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
 	/* TODO: Get Type; */
 	CJADDSTR(address, "type", "random");
 
-	CJADD(event, "characteristic", chrc);
 	CJADDSTR(chrc, "uuid", uuid);
 	CJADDSTR(chrc, "path", path);
-	CJADD(chrc, "value", value_arr);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
+	CJADDREF(device, "address", address);
+	CJADDREF(chrc, "value", value_arr);
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "characteristic", chrc);
+	CJADDREF(root_obj, "event", event);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	LOG_DBG("Device JSON: %s", msg->buf);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(value_arr);
@@ -572,18 +552,20 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 static int create_device_wrapper(char *ble_address, bool conn_status,
 				 struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *event = cJSON_CreateObject();
 	cJSON *device = cJSON_CreateObject();
 	cJSON *address = cJSON_CreateObject();
 	cJSON *status = cJSON_CreateObject();
 	cJSON *services = cJSON_CreateObject();
+	char str[64];
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (status == NULL) || (services == NULL)) {
@@ -593,29 +575,23 @@ static int create_device_wrapper(char *ble_address, bool conn_status,
 	CJADDSTR(root_obj, "type", "event");
 	CJADDSTR(root_obj, "gatewayId", gateway_id);
 	CJADDNULL(root_obj, "requestId");
-	CJADD(root_obj, "event", event);
 
 	CJADDSTR(event, "type", "device_discover_result");
-
-	char str[64];
-
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADD(event, "device", device);
-
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "address", address);
 	CJADDSTR(address, "address", ble_address);
-	CJADD(device, "status", status);
 	CJADDBOOL(status, "connected", conn_status);
-	CJADD(event, "services", services);
+
+	CJADDREF(device, "status", status);
+	CJADDREF(device, "address", address);
+	CJADDREF(event, "device", device);
+	CJADDREF(event, "services", services);
+	CJADDREF(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	msg->buf[strlen(msg->buf) - 3] = 0;
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(services);
@@ -624,12 +600,13 @@ cleanup:
 	cJSON_Delete(device);
 	cJSON_Delete(event);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 int device_shadow_data_encode(char *ble_address, bool connecting,
 			      bool connected, struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *state_obj = cJSON_CreateObject();
 	cJSON *reported_obj = cJSON_CreateObject();
@@ -648,28 +625,25 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 		goto cleanup;
 	}
 
-	CJADD(root_obj, "state", state_obj);
-	CJADD(state_obj, "reported", reported_obj);
-
-	CJADD(reported_obj, "device", gateway_device);
-	CJADD(gateway_device, "serviceInfo", service_info);
-	CJADD(service_info, "fota_v1", fota_arr);
 	CJADDARRSTR(fota_arr, "APP");
 	CJADDARRSTR(fota_arr, "MODEM");
 	CJADDARRSTR(fota_arr, "BOOT");
 
-	CJADD(reported_obj, "statusConnections", status_connections);
-	CJADD(status_connections, ble_address, device);
 	CJADDSTR(device, "id", ble_address);
-	CJADD(device, "status", status);
 	CJADDBOOLOBJ(status, "connected", connected);
 	CJADDBOOLOBJ(status, "connecting", connecting);
 
+	CJADDREF(service_info, "fota_v1", fota_arr);
+	CJADDREF(gateway_device, "serviceInfo", service_info);
+	CJADDREF(device, "status", status);
+	CJADDREF(status_connections, ble_address, device);
+	CJADDREF(reported_obj, "device", gateway_device);
+	CJADDREF(reported_obj, "statusConnections", status_connections);
+	CJADDREF(state_obj, "reported", reported_obj);
+	CJADDREF(root_obj, "state", state_obj);
+
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-
-	cJSON_Delete(root_obj);
-
-	return 0;
+	ret = 0;
 
 cleanup:
 	cJSON_Delete(fota_arr);
@@ -681,7 +655,7 @@ cleanup:
 	cJSON_Delete(reported_obj);
 	cJSON_Delete(state_obj);
 	cJSON_Delete(root_obj);
-	return -ENOMEM;
+	return ret;
 }
 
 /* Start of functions to assemble large JSON string. No room to create these
@@ -751,6 +725,7 @@ static int svc_attr_encode(char *uuid, char *path,
 			    connected_ble_devices *ble_conn_ptr,
 			    struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *services = cJSON_CreateObject();
 	cJSON *service = cJSON_CreateObject();
 	cJSON *chrcs = cJSON_CreateObject();
@@ -759,27 +734,28 @@ static int svc_attr_encode(char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADD(services, uuid, service);
 	CJADDSTR(service, "uuid", uuid);
-	CJADD(service, "characteristics", chrcs);
+
+	CJADDREF(service, "characteristics", chrcs);
+	CJADDREF(services, uuid, service);
 
 	/* Print services and add to wrapper */
 	CJPRINT(services, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
 	LOG_DBG("JSON: %s", service_buffer);
-	cJSON_Delete(services);
-	return device_discover_add_service(service_buffer, msg);
+	ret = device_discover_add_service(service_buffer, msg);
 
 cleanup:
 	cJSON_Delete(chrcs);
 	cJSON_Delete(service);
 	cJSON_Delete(services);
-	return -ENOMEM;
+	return ret;
 }
 
 static int chrc_attr_encode(char *uuid, char *path, u8_t properties,
 			     connected_ble_devices *ble_conn_ptr,
 			    struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *chrc = cJSON_CreateObject();
 	cJSON *descriptors = cJSON_CreateObject();
 	cJSON *props = cJSON_CreateObject();
@@ -791,14 +767,10 @@ static int chrc_attr_encode(char *uuid, char *path, u8_t properties,
 		goto cleanup;
 	}
 
-	CJADD(parent_chrc, uuid, chrc);
 	CJADDSTR(chrc, "uuid", uuid);
 	CJADDSTR(chrc, "path", path);
-	CJADD(chrc, "value", value_arr);
 
 	CJADDARRNUM(value_arr, 0);
-
-	CJADD(chrc, "properties", props);
 
 	/* Check and add properties */
 	switch (properties) {
@@ -862,13 +834,15 @@ static int chrc_attr_encode(char *uuid, char *path, u8_t properties,
 		break;
 	}
 
-	CJADD(chrc, "descriptors", descriptors);
+	CJADDREF(chrc, "properties", props);
+	CJADDREF(chrc, "value", value_arr);
+	CJADDREF(chrc, "descriptors", descriptors);
+	CJADDREF(parent_chrc, uuid, chrc);
 
 	/* Print parent_chrhc and add to service */
 	CJPRINT(parent_chrc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
 	LOG_DBG("JSON: %s", service_buffer);
-	cJSON_Delete(parent_chrc);
-	return device_discover_add_chrc(service_buffer, msg);
+	ret = device_discover_add_chrc(service_buffer, msg);
 
 cleanup:
 	cJSON_Delete(parent_chrc);
@@ -876,13 +850,14 @@ cleanup:
 	cJSON_Delete(props);
 	cJSON_Delete(descriptors);
 	cJSON_Delete(chrc);
-	return -ENOMEM;
+	return ret;
 }
 
 static int ccc_attr_encode(char *uuid, char *path,
 			   connected_ble_devices *ble_conn_ptr,
 			   struct ble_msg *msg)
 {
+	int ret = -ENOMEM;
 	cJSON *descriptor = cJSON_CreateObject();
 	cJSON *value_arr = cJSON_CreateArray();
 	cJSON *parent_ccc =  cJSON_CreateObject();
@@ -892,24 +867,24 @@ static int ccc_attr_encode(char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADD(parent_ccc, uuid, descriptor);
 	CJADDSTR(descriptor, "uuid", uuid);
-	CJADD(descriptor, "value", value_arr);
 	CJADDARRNUM(value_arr, 0);
 	CJADDARRNUM(value_arr, 0);
 	CJADDSTR(descriptor, "path", path);
 
+	CJADDREF(descriptor, "value", value_arr);
+	CJADDREF(parent_ccc, uuid, descriptor);
+
 	/* Print parent_ccc and add to service */
 	CJPRINT(parent_ccc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
 	LOG_DBG("JSON: %s", service_buffer);
-	cJSON_Delete(parent_ccc);
-	return device_discover_add_ccc(service_buffer, msg);
+	ret = device_discover_add_ccc(service_buffer, msg);
 
 cleanup:
 	cJSON_Delete(parent_ccc);
 	cJSON_Delete(value_arr);
 	cJSON_Delete(descriptor);
-	return -ENOMEM;
+	return ret;
 }
 
 static int attr_encode(u16_t attr_type, char *uuid_str, char *path,
