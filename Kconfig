@@ -154,6 +154,20 @@ config APR_GATEWAY
 	help
 	  Defines if gateway
 
+config FLASH_TEST
+	bool "Enable Flash Test module"
+	default n
+	select NRFX_SPIM if FLASH_TEST
+	select NRFX_SPIM3 if FLASH_TEST
+	select SPI if FLASH_TEST
+	select SPI_NOR if FLASH_TEST
+	help
+		Enable to test Erase, Write, and Read of external flash.
+
+config SPM_NRF_REGULATORS_NS
+	bool "Regulators is Non-Secure"
+	default y
+
 endmenu
 
 menu "Zephyr Kernel"
