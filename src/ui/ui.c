@@ -12,6 +12,7 @@
 LOG_MODULE_REGISTER(ui, CONFIG_UI_LOG_LEVEL);
 
 static enum ui_led_pattern current_led_state;
+
 static ui_callback_t callback;
 
 #if !defined(CONFIG_UI_LED_USE_PWM)
@@ -81,11 +82,11 @@ static void button_handler(u32_t button_states, u32_t has_changed)
 	}
 }
 
-void ui_led_set_pattern(enum ui_led_pattern state)
+void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
 {
 	current_led_state = state;
 #ifdef CONFIG_UI_LED_USE_PWM
-	ui_led_set_effect(state);
+	ui_led_set_effect(state, led_num);
 #else
 	current_led_state = state;
 #endif /* CONFIG_UI_LED_USE_PWM */
@@ -96,10 +97,10 @@ enum ui_led_pattern ui_led_get_pattern(void)
 	return current_led_state;
 }
 
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue)
+int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num)
 {
 #ifdef CONFIG_UI_LED_USE_PWM
-	return ui_led_set_rgb(red, green, blue);
+	return ui_led_set_rgb(red, green, blue, led_num);
 #else
 	return -ENOTSUP;
 #endif /* CONFIG_UI_LED_USE_PWM */

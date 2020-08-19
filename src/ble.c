@@ -15,7 +15,7 @@
 
 #include "net/nrf_cloud.h"
 #include "ble.h"
-
+#include "ui.h"
 #include "ble_codec.h"
 #include "ctype.h"
 #include "nrf_cloud_transport.h"
@@ -883,8 +883,17 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 
 	update_shadow(addr_trunc, false, true);
 
+	device_shadow_data_encode(addr_trunc, false, true);
+
 	ble_conn_set_connected(addr_trunc, true);
+
 	ble_remove_from_whitelist(addr_trunc, connection_ptr->addr_type);
+
+	ui_led_set_pattern(UI_BLE_CONNECTED, 1);
+
+	//Start the timer to begin scanning again.
+	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
+
 
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
@@ -914,14 +923,17 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 
 	LOG_INF("Disconnected: %s (reason 0x%02x)", log_strdup(addr), reason);
 
+
 	if (!connection_ptr->free) {
 		ble_add_to_whitelist(connection_ptr->addr,
 				     connection_ptr->addr_type);
-	}
 
-	/* Start the timer to begin scanning again. */
-	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
-}
+        ui_led_set_pattern(UI_BLE_DISCONNECTED, 1);
+
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
+
+	}
 
 static struct bt_conn_cb conn_callbacks = {
 	.connected = connected,

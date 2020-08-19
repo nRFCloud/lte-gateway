@@ -30,7 +30,7 @@ struct led_effect_step {
 };
 
 struct led_effect {
-	const struct led_effect_step *steps;
+	struct led_effect_step *steps;
 	u16_t step_count;
 	bool loop_forever;
 };

@@ -9,34 +9,53 @@ config USE_UI_MODULE
 	default y
 	help
 		Enable the User Interface module for user interaction on
-		the gateway.
+		development kit / Thingy91 hardware.
 
 menu "User Interface"
 	visible if USE_UI_MODULE
 
 config UI_LED_USE_PWM
 	bool "Use PWM to control LEDs"
-	default y if BOARD_APRICITY_GATEWAY_NRF9160NS
-	select PWM if BOARD_APRICITY_GATEWAY_NRF9160NS
-	select PWM_0 if BOARD_APRICITY_GATEWAY_NRF9160NS
+	default y
+	select PWM
+	select PWM_0
+	select PWM_1
 
 if UI_LED_USE_PWM
 
-config UI_LED_PWM_DEV_NAME
+config UI_LED_PWM_1_DEV_NAME
 	string "PWM device name for RGB LED"
-	default "PWM_0" if BOARD_APRICITY_GATEWAY_NRF9160NS
+	default "PWM_0"
 
-config UI_LED_RED_PIN
+config UI_LED_PWM_2_DEV_NAME
+	string "PWM device name for RGB LED"
+	default "PWM_1"
+
+config UI_LED_1_RED_PIN
 	int "Red LED pin number"
-	default 29 if BOARD_APRICITY_GATEWAY_NRF9160NS
+	default 29
 
-config UI_LED_GREEN_PIN
+config UI_LED_1_GREEN_PIN
 	int "Green LED pin number"
-	default 30 if BOARD_APRICITY_GATEWAY_NRF9160NS
+	default 30
 
-config UI_LED_BLUE_PIN
+config UI_LED_1_BLUE_PIN
 	int "Blue LED pin number"
-	default 31 if BOARD_APRICITY_GATEWAY_NRF9160NS
+	default 31
+
+
+config UI_LED_2_RED_PIN
+	int "Red LED pin number"
+	default 26
+
+config UI_LED_2_GREEN_PIN
+	int "Green LED pin number"
+	default 27
+
+config UI_LED_2_BLUE_PIN
+	int "Blue LED pin number"
+	default 28
+
 
 endif # UI_LED_USE_PWM
 

@@ -405,7 +405,7 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 				K_SECONDS(CONFIG_CLOUD_CONNECT_ERR_REBOOT_S));
 	}
 
-	ui_led_set_pattern(UI_LED_ERROR_CLOUD);
+	ui_led_set_pattern(UI_LED_ERROR_CLOUD, PWM_DEV_0);
 	shutdown_modem();
 	k_thread_suspend(k_current_get());
 }
@@ -467,7 +467,7 @@ static void cloud_connect_work_fn(struct k_work *work)
 				       &cloud_reboot_work,
 				       K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
 
-	ui_led_set_pattern(UI_CLOUD_CONNECTING);
+	ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 
 	/* Attempt cloud connection */
 	ret = cloud_connect(cloud_backend);
@@ -501,7 +501,7 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 			CLOUD_ASSOCIATION_STATE_REQUESTED) {
 		atomic_set(&cloud_association,
 			   CLOUD_ASSOCIATION_STATE_REQUESTED);
-		ui_led_set_pattern(UI_CLOUD_PAIRING);
+		ui_led_set_pattern(UI_CLOUD_PAIRING, PWM_DEV_0);
 		LOG_INF("Add device to cloud account.");
 		LOG_INF("Waiting for cloud association...");
 
@@ -567,7 +567,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		break;
 	case CLOUD_EVT_READY:
 		LOG_INF("CLOUD_EVT_READY");
-		ui_led_set_pattern(UI_CLOUD_CONNECTED);
+		ui_led_set_pattern(UI_CLOUD_CONNECTED, PWM_DEV_0);
 
 #if defined(CONFIG_BOOTLOADER_MCUBOOT)
 		/* Mark image as good to avoid rolling back after update */
@@ -690,7 +690,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 {
 	if (evt->type == CLOUD_EVT_CONNECTING) {
 		LOG_INF("CLOUD_EVT_CONNECTING");
-		ui_led_set_pattern(UI_CLOUD_CONNECTING);
+		ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 		k_delayed_work_cancel(&cloud_reboot_work);
 
 		if (evt->data.err != CLOUD_CONNECT_RES_SUCCESS) {
@@ -711,7 +711,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		s32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
 
 		LOG_INF("CLOUD_EVT_DISCONNECTED: %d", evt->data.err);
-		ui_led_set_pattern(UI_LTE_CONNECTED);
+		ui_led_set_pattern(UI_LTE_CONNECTED, PWM_DEV_0);
 
 		switch (evt->data.err) {
 		case CLOUD_DISCONNECT_INVALID_REQUEST:
@@ -798,7 +798,7 @@ static int modem_configure(void)
 		goto connected;
 	}
 
-	ui_led_set_pattern(UI_LTE_CONNECTING);
+	ui_led_set_pattern(UI_LTE_CONNECTING, PWM_DEV_0);
 	LOG_INF("Connecting to LTE network.");
 	LOG_INF("This may take several minutes.");
 
@@ -816,7 +816,7 @@ static int modem_configure(void)
 
 connected:
 	LOG_INF("Connected to LTE network.");
-	ui_led_set_pattern(UI_LTE_CONNECTED);
+	ui_led_set_pattern(UI_LTE_CONNECTED, PWM_DEV_0);
 
 #endif /* defined(CONFIG_BSD_LIBRARY) */
 	return 0;

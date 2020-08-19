@@ -29,10 +29,10 @@ void ui_leds_start(void);
 void ui_leds_stop(void);
 
 /**@brief Sets LED effect based in UI LED state. */
-void ui_led_set_effect(enum ui_led_pattern state);
+void ui_led_set_effect(enum ui_led_pattern state, uint8_t led_num);
 
 /**@brief Sets RGB and light intensity values, in 0 - 255 ranges. */
-int ui_led_set_rgb(u8_t red, u8_t green, u8_t blue);
+int ui_led_set_rgb(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
 
 #ifdef __cplusplus
 }
