@@ -25,6 +25,7 @@ zephyr_include_directories(src)
 zephyr_library_include_directories(
 src/ui
 src/watchdog
+src/flash
 )
 
 target_sources(app PRIVATE src/ble.c)
@@ -36,3 +37,4 @@ target_sources(app PRIVATE src/dfu/peripheral_dfu.c)
 add_subdirectory(src/ui)
 #add_subdirectory(src/dfu)
 add_subdirectory_ifdef(CONFIG_WATCHDOG src/watchdog)
+add_subdirectory(src/flash)
