@@ -201,6 +201,47 @@ static void led_2_work_handler(struct k_work *work)
 
 }
 
+
+static void led_2_work_handler(struct k_work *work)
+{
+
+	struct led *led = CONTAINER_OF(work, struct led, work);
+
+	const struct led_effect_step *effect_step =
+		&leds_2.effect->steps[leds_2.effect_step];
+	int substeps_left = effect_step->substep_count - leds_2.effect_substep;
+
+	for (size_t i = 0; i < ARRAY_SIZE(leds_2.color.c); i++) {
+		int diff = (effect_step->color.c[i] - leds_2.color.c[i]) /
+			substeps_left;
+		leds_2.color.c[i] += diff;
+	}
+
+	pwm_out(led, &leds_2.color, 1);
+
+	leds_2.effect_substep++;
+	if (leds_2.effect_substep == effect_step->substep_count) {
+		leds_2.effect_substep = 0;
+		leds_2.effect_step++;
+
+		if (leds_2.effect_step == leds_2.effect->step_count) {
+			if (leds_2.effect->loop_forever) {
+				leds_2.effect_step = 0;
+			}
+		} else {
+			__ASSERT_NO_MSG(leds_2.effect->steps[leds_2.effect_step].substep_count > 0);
+		}
+	}
+
+	if (leds_2.effect_step < leds_2.effect->step_count) {
+		s32_t next_delay =
+			leds_2.effect->steps[leds_2.effect_step].substep_time;
+
+		k_delayed_work_submit(&leds_2.work, K_MSEC(next_delay));
+	}
+
+}
+
 static void led_update(struct led *led)
 {
 	k_delayed_work_cancel(&led->work);

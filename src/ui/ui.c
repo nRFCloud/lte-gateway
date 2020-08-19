@@ -127,8 +127,6 @@ static void button_handler(u32_t button_states, u32_t has_changed)
 	}
 }
 
-
-
 void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
 {
 	current_led_state = state;
