@@ -891,7 +891,7 @@ void main(void)
 	LOG_INF("*******************************");
 
 #if defined(CONFIG_USE_UI_MODULE)
-	ui_init(NULL);
+	ui_init(power_button_handler);
 #endif
 
 	ble_init();

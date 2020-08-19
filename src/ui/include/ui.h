@@ -58,8 +58,8 @@ extern "C" {
 #define UI_LTE_DISCONNECTED_COLOR	UI_LED_COLOR_OFF
 #define UI_LTE_CONNECTING_COLOR		UI_LED_COLOR_WHITE
 #define UI_LTE_CONNECTED_COLOR		UI_LED_COLOR_CYAN
-#define UI_CLOUD_CONNECTING_COLOR	UI_LED_COLOR_CYAN
-#define UI_CLOUD_CONNECTED_COLOR	UI_LED_COLOR_BLUE
+#define UI_CLOUD_CONNECTING_COLOR 	UI_LED_COLOR_WHITE
+#define UI_CLOUD_CONNECTED_COLOR 	UI_LED_COLOR_WHITE
 #define UI_CLOUD_PAIRING_COLOR		UI_LED_COLOR_YELLOW
 #define UI_ACCEL_CALIBRATING_COLOR	UI_LED_COLOR_PURPLE
 #define UI_LED_ERROR_CLOUD_COLOR	UI_LED_COLOR_RED
@@ -196,38 +196,7 @@ int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
  */
 bool ui_button_is_active(u32_t button);
 
-/**
- * @brief Set the buzzer frequency.
- *
- * @param frequency Frequency. If set to 0, the buzzer is disabled.
- *		    The frequency is limited to the range 100 - 10 000 Hz.
- * @param intensity Intensity of the buzzer output. If set to 0, the buzzer is
- *		    disabled.
- *		    The frequency is limited to the range 0 - 100 %.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_buzzer_set_frequency(u32_t frequency, u8_t intensity);
-
-/**
- * @brief Write value to pin controlling NMOS transistor.
- *
- * @param nmos_idx	NMOS to control.
- * @param value		1 sets high signal on NMOS gate, 0 sets it low.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_nmos_write(size_t nmos_idx, u8_t value);
-
-/**
- * @brief Control NMOS with PWM signal.
- *
- * @param period	PWM signal period in microseconds.
- * @param pulse	PWM signal Pulse in microseconds.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_nmos_pwm_set(size_t nmos_idx, u32_t period, u32_t pulse);
+void power_button_handler(void);
 
 #ifdef __cplusplus
 }
