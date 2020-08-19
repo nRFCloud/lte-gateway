@@ -178,6 +178,10 @@ config FLASH_TEST
 	help
 		Enable to test Erase, Write, and Read of external flash.
 
+config SPM_NRF_REGULATORS_NS
+	bool "Regulators is Non-Secure"
+	default y
+
 endmenu
 
 menu "Zephyr Kernel"
