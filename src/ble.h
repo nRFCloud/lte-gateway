@@ -22,27 +22,28 @@
 #define UUID_STR_LEN 37
 #define BT_MAX_SUBSCRIBES 25
 
-#define READ_BUF_SIZE 256
-
-typedef struct ble_scanned_devices
-{
-  int rssi;
-  char type[7];
-  char name[30];
-  char addr[18];
-
+typedef struct ble_scanned_devices {
+	int rssi;
+	char type[7];
+	char name[30];
+	char addr[18];
 } ble_scanned_devices;
 
+struct connected_ble_devices;
+
 void ble_init(void);
-void ble_add_to_whitelist(char* addr_str, char* conn_type);
+void ble_add_to_whitelist(char *addr_str, char *conn_type);
 void scan_start(void);
-void ble_subscribe(char* ble_addr, char* chrc_uuid, u8_t value_type);
-void gatt_read(char* ble_addr, char* chrc_uuid);
-void gatt_write(char* ble_addr, char* chrc_uuid, u8_t* data, u16_t data_len);
-u8_t ble_discover(char* ble_addr, char* type);
+void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type);
+void gatt_read(char *ble_addr, char *chrc_uuid);
+void gatt_write(char *ble_addr, char *chrc_uuid, u8_t *data, u16_t data_len);
+u8_t ble_discover(char *ble_addr, char *type);
 void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len);
-void bt_to_upper(char* addr, u8_t addr_len);
-u8_t disconnect_device_by_addr(char* ble_addr, char* type);
-void ble_remove_from_whitelist(char* addr_str, char* conn_type);
+void bt_to_upper(char *addr, u8_t addr_len);
+u8_t disconnect_device_by_addr(char *ble_addr, char *type);
+void ble_remove_from_whitelist(char *addr_str, char *conn_type);
 void ble_clear_discover_inprogress();
+int device_discovery_send(struct connected_ble_devices *conn_ptr);
+void update_shadow(char *ble_address, bool connecting, bool connected);
+
 #endif /* _BLE_H_ */

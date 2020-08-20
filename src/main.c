@@ -23,7 +23,10 @@
 #include <net/cloud.h>
 #include <net/socket.h>
 #include <net/nrf_cloud.h>
-
+#undef __XSI_VISIBLE
+#define __XSI_VISIBLE 1
+#include <time.h>
+#include <posix/time.h>
 #include <fw_info.h>
 
 #if defined(CONFIG_LWM2M_CARRIER)
@@ -118,11 +121,6 @@ static struct cloud_backend *cloud_backend;
 static atomic_t carrier_requested_disconnect;
 static atomic_t cloud_connect_attempts;
 
-#if IS_ENABLED(CONFIG_GPS_START_ON_MOTION)
-/* Current state of activity monitor */
-static motion_activity_state_t last_activity_state = MOTION_ACTIVITY_NOT_KNOWN;
-#endif
-
 /* Variable to keep track of nRF cloud association state. */
 enum cloud_association_state {
 	CLOUD_ASSOCIATION_STATE_INIT,
@@ -139,7 +137,6 @@ static struct k_delayed_work cloud_reboot_work;
 static struct k_delayed_work cycle_cloud_connection_work;
 static struct k_delayed_work cycle_cloud_connection_work;
 static struct k_delayed_work cloud_connect_work;
-static struct k_delayed_work send_agps_request_work;
 
 #if defined(CONFIG_AT_CMD)
 #define MODEM_AT_CMD_BUFFER_LEN (CONFIG_AT_CMD_RESPONSE_MAX_LEN + 1)
@@ -159,7 +156,7 @@ static K_SEM_DEFINE(cloud_ready_to_connect, 0, 1);
 #endif
 
 #ifdef CONFIG_MODEM_INFO
-	static struct modem_param_info modem_param;
+static struct modem_param_info modem_param;
 #endif
 
 enum error_type {
@@ -300,14 +297,14 @@ void error_handler(enum error_type err_type, int err_code)
 		 */
 		ui_led_set_pattern(UI_LED_ERROR_CLOUD);
 		LOG_ERR("Error of type ERROR_CLOUD: %d", err_code);
-	break;
+		break;
 	case ERROR_BSD_RECOVERABLE:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
 		 */
 		ui_led_set_pattern(UI_LED_ERROR_BSD_REC);
 		LOG_ERR("Error of type ERROR_BSD_RECOVERABLE: %d", err_code);
-	break;
+		break;
 	default:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 2, 3 and 4)
 		 * undefined error.
@@ -315,7 +312,7 @@ void error_handler(enum error_type err_type, int err_code)
 		ui_led_set_pattern(UI_LED_ERROR_UNKNOWN);
 		LOG_ERR("Unknown error type: %d, code: %d",
 			err_type, err_code);
-	break;
+		break;
 	}
 
 	while (true) {
@@ -338,37 +335,6 @@ void k_sys_fatal_error_handler(unsigned int reason,
 void cloud_error_handler(int err)
 {
 	error_handler(ERROR_CLOUD, err);
-}
-
-static void send_agps_request(struct k_work *work)
-{
-	ARG_UNUSED(work);
-
-#if defined(CONFIG_NRF_CLOUD_AGPS)
-	int err;
-	static s64_t last_request_timestamp;
-
-/* Request A-GPS data no more often than every hour (time in milliseconds). */
-#define AGPS_UPDATE_PERIOD (60 * 60 * 1000)
-
-	if ((last_request_timestamp != 0) &&
-	    (k_uptime_get() - last_request_timestamp) < AGPS_UPDATE_PERIOD) {
-		LOG_WRN("A-GPS request was sent less than 1 hour ago");
-		return;
-	}
-
-	LOG_INF("Sending A-GPS request");
-
-	err = nrf_cloud_agps_request_all();
-	if (err) {
-		LOG_ERR("A-GPS request failed, error: %d", err);
-		return;
-	}
-
-	last_request_timestamp = k_uptime_get();
-
-	LOG_INF("A-GPS request sent");
-#endif /* defined(CONFIG_NRF_CLOUD_AGPS) */
 }
 
 void cloud_connect_error_handler(enum cloud_connect_result err)
@@ -433,10 +399,10 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 
 	if (reboot) {
 		LOG_ERR("Device will reboot in %d seconds",
-				CONFIG_CLOUD_CONNECT_ERR_REBOOT_S);
+			CONFIG_CLOUD_CONNECT_ERR_REBOOT_S);
 		k_delayed_work_submit_to_queue(
-			&application_work_q, &cloud_reboot_work,
-			K_SECONDS(CONFIG_CLOUD_CONNECT_ERR_REBOOT_S));
+				&application_work_q, &cloud_reboot_work,
+				K_SECONDS(CONFIG_CLOUD_CONNECT_ERR_REBOOT_S));
 	}
 
 	ui_led_set_pattern(UI_LED_ERROR_CLOUD);
@@ -471,7 +437,7 @@ void connect_to_cloud(const s32_t connect_delay_s)
 
 	/* Check if max cloud connect retry count is exceeded. */
 	if (atomic_get(&cloud_connect_attempts) >
-	    CONFIG_CLOUD_CONNECT_COUNT_MAX) {
+			CONFIG_CLOUD_CONNECT_COUNT_MAX) {
 		LOG_ERR("The max cloud connection attempt count exceeded.");
 		cloud_error_handler(-ETIMEDOUT);
 	}
@@ -494,12 +460,12 @@ static void cloud_connect_work_fn(struct k_work *work)
 	int ret;
 
 	LOG_INF("Connecting to cloud, attempt %d of %d",
-	       atomic_get(&cloud_connect_attempts),
-		   CONFIG_CLOUD_CONNECT_COUNT_MAX);
+		atomic_get(&cloud_connect_attempts),
+		CONFIG_CLOUD_CONNECT_COUNT_MAX);
 
 	k_delayed_work_submit_to_queue(&application_work_q,
-			&cloud_reboot_work,
-			K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
+				       &cloud_reboot_work,
+				       K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
 
 	ui_led_set_pattern(UI_CLOUD_CONNECTING);
 
@@ -515,7 +481,7 @@ static void cloud_connect_work_fn(struct k_work *work)
 	} else {
 		LOG_INF("Cloud connection request sent.");
 		LOG_INF("Connection response timeout is set to %d seconds.",
-		       CLOUD_CONNACK_WAIT_DURATION / MSEC_PER_SEC);
+			CLOUD_CONNACK_WAIT_DURATION / MSEC_PER_SEC);
 		k_delayed_work_submit_to_queue(&application_work_q,
 					&cloud_reboot_work,
 					K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
@@ -532,9 +498,9 @@ static void cloud_reboot_handler(struct k_work *work)
 static void on_user_pairing_req(const struct cloud_event *evt)
 {
 	if (atomic_get(&cloud_association) !=
-		CLOUD_ASSOCIATION_STATE_REQUESTED) {
+			CLOUD_ASSOCIATION_STATE_REQUESTED) {
 		atomic_set(&cloud_association,
-				   CLOUD_ASSOCIATION_STATE_REQUESTED);
+			   CLOUD_ASSOCIATION_STATE_REQUESTED);
 		ui_led_set_pattern(UI_CLOUD_PAIRING);
 		LOG_INF("Add device to cloud account.");
 		LOG_INF("Waiting for cloud association...");
@@ -543,8 +509,8 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 		 * a connection cycle is needed... TBD why.
 		 */
 		k_delayed_work_submit_to_queue(&application_work_q,
-					       &cycle_cloud_connection_work,
-					       CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
+					&cycle_cloud_connection_work,
+					CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
 	}
 }
 
@@ -578,7 +544,7 @@ void on_pairing_done(void)
 		LOG_INF("Device associated with cloud.");
 		LOG_INF("Reconnecting for cloud policy to take effect.");
 		atomic_set(&cloud_association,
-				   CLOUD_ASSOCIATION_STATE_RECONNECT);
+			   CLOUD_ASSOCIATION_STATE_RECONNECT);
 		k_delayed_work_submit_to_queue(&application_work_q,
 					       &cycle_cloud_connection_work,
 					       K_NO_WAIT);
@@ -616,31 +582,9 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 	case CLOUD_EVT_DATA_SENT:
 		LOG_INF("CLOUD_EVT_DATA_SENT");
 		break;
-	case CLOUD_EVT_DATA_RECEIVED: {
-		int err;
-
+	case CLOUD_EVT_DATA_RECEIVED:
 		LOG_INF("CLOUD_EVT_DATA_RECEIVED");
-
-		if (err == 0) {
-			/* Cloud decoder has handled the data */
-			return;
-		}
-
-#if defined(CONFIG_NRF_CLOUD_AGPS)
-		/* The decoder didn't handle the data, check if it's A-GPS data
-		 */
-		err = nrf_cloud_agps_process(evt->data.msg.buf,
-					     evt->data.msg.len,
-					     NULL);
-		if (err) {
-			LOG_WRN("Data was not valid A-GPS data, err: %d", err);
-			break;
-		}
-
-		LOG_INF("A-GPS data processed");
-#endif /* defined(CONFIG_GPS_USE_AGPS) */
 		break;
-	}
 	case CLOUD_EVT_PAIR_REQUEST:
 		LOG_INF("CLOUD_EVT_PAIR_REQUEST");
 		on_user_pairing_req(evt);
@@ -672,7 +616,7 @@ void log_fw_info(void)
 	struct fw_info *info = &m_firmware_info;
 
 	if (info) {
-		LOG_INF("Ver:%u, Size:%u, Start:0x%08u, Boot:0x%08u, Valid:%u",
+		LOG_INF("Ver:%u, Size:%u, Start:0x%08x, Boot:0x%08x, Valid:%u",
 			info->version, info->size, info->address,
 			info->boot_address, info->valid);
 	}
@@ -697,6 +641,47 @@ void log_modem_info(void)
 				modem_param.device.modem_fw.type,
 				modem_param.device.modem_fw.value);
 		}
+		if (modem_param.network.date_time.value_string) {
+			char *str = modem_param.network.date_time.value_string;
+
+			_timezone = atoi(&str[18]) * 15 * 60;
+			_daylight = atoi(&str[25]);
+			LOG_INF("modem_info.network.date_time: %s "
+				"_daylight %d _timezone %ld",
+				modem_param.network.date_time.value_string,
+				_daylight, _timezone);
+
+			struct tm tm;
+			char *rm;
+			char *src = modem_param.network.date_time.value_string;
+			struct timespec ts;
+
+			/* 20/06/12,00:47:47-28 */
+			rm = strptime(src, "%y/%m/%d,%H:%M:%S", &tm);
+			if (rm) {
+				ts.tv_sec = mktime(&tm);
+				ts.tv_nsec = 0;
+				LOG_INF("setting time to %lld", ts.tv_sec);
+
+				/* tzset();
+				 * char *tz = getenv("TZ");
+				 * LOG_INF("TZ=%s", tz ? tz : "<unknown>");
+				 */
+
+				if (!clock_settime(CLOCK_REALTIME, &ts)) {
+					LOG_INF("time set");
+				} else {
+					LOG_ERR("error %d on clock_settime()",
+						errno);
+				}
+			} else {
+				LOG_ERR("strptime() could not parse time");
+			}
+		} else {
+			LOG_WRN("modem_info.network.date_time: empty");
+		}
+
+
 	}
 #endif
 }
@@ -732,12 +717,15 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		case CLOUD_DISCONNECT_INVALID_REQUEST:
 			LOG_INF("Cloud connection closed.");
 			if ((atomic_get(&cloud_connect_attempts) == 1) &&
-			    (atomic_get(&cloud_association) ==
-			     CLOUD_ASSOCIATION_STATE_INIT)) {
-				LOG_INF("This can occur during initial nRF Cloud provisioning.");
+				(atomic_get(&cloud_association) ==
+						CLOUD_ASSOCIATION_STATE_INIT)) {
+				LOG_INF("This can occur during initial "
+					"nRF Cloud provisioning.");
 #if defined(CONFIG_LWM2M_CARRIER)
 #if !defined(CONFIG_DEBUG) && defined(CONFIG_REBOOT)
-				/* Reconnect does not work with carrier library */
+				/* Reconnect does not work with
+				 * carrier library
+				 */
 				LOG_INF("Rebooting in 10 seconds...");
 				k_sleep(K_SECONDS(10));
 #endif
@@ -746,15 +734,16 @@ void connection_evt_handler(const struct cloud_event *const evt)
 #endif
 				connect_wait_s = 10;
 			} else {
-				LOG_INF("This can occur if the device has the wrong nRF Cloud certificates.");
+				LOG_INF("This can occur if the device has "
+					"the wrong nRF Cloud certificates.");
 			}
 			break;
 		case CLOUD_DISCONNECT_USER_REQUEST:
 			if (atomic_get(&cloud_association) ==
-			    CLOUD_ASSOCIATION_STATE_RECONNECT ||
-			    atomic_get(&cloud_association) ==
-			    CLOUD_ASSOCIATION_STATE_REQUESTED ||
-			    (atomic_get(&carrier_requested_disconnect))) {
+					CLOUD_ASSOCIATION_STATE_RECONNECT ||
+				atomic_get(&cloud_association) ==
+					CLOUD_ASSOCIATION_STATE_REQUESTED ||
+				(atomic_get(&carrier_requested_disconnect))) {
 				connect_wait_s = 10;
 			}
 			break;
@@ -774,7 +763,6 @@ void connection_evt_handler(const struct cloud_event *const evt)
 /**@brief Initializes and submits delayed work. */
 static void work_init(void)
 {
-	k_delayed_work_init(&send_agps_request_work, send_agps_request);
 	k_delayed_work_init(&cloud_reboot_work, cloud_reboot_handler);
 	k_delayed_work_init(&cycle_cloud_connection_work,
 			    cycle_cloud_connection);
@@ -875,9 +863,9 @@ static void log_uart_pins(void)
 	struct device *uart_1_dev = device_get_binding("UART_1");
 
 	LOG_INF("UART0 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
-	     UART0_TX, UART0_RX, UART0_RTS, UART0_CTS, UART0_SPEED);
+		UART0_TX, UART0_RX, UART0_RTS, UART0_CTS, UART0_SPEED);
 	LOG_INF("UART1 tx:%d, rx:%d, rts:%d, cts:%d, speed:%d",
-	     UART1_TX, UART1_RX, UART1_RTS, UART1_CTS, UART1_SPEED);
+		UART1_TX, UART1_RX, UART1_RTS, UART1_CTS, UART1_SPEED);
 	k_sleep(K_MSEC(50));
 
 	uart_config_get(uart_0_dev, &config);
@@ -928,7 +916,7 @@ void main(void)
 	while (modem_configure() != 0) {
 		LOG_WRN("Failed to establish LTE connection.");
 		LOG_WRN("Will retry in %d seconds.",
-				CONFIG_CLOUD_CONNECT_RETRY_DELAY);
+			CONFIG_CLOUD_CONNECT_RETRY_DELAY);
 		k_sleep(K_SECONDS(CONFIG_CLOUD_CONNECT_RETRY_DELAY));
 	}
 

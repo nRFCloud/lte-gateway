@@ -36,4 +36,3 @@ target_sources(app PRIVATE src/dfu/peripheral_dfu.c)
 add_subdirectory(src/ui)
 #add_subdirectory(src/dfu)
 add_subdirectory_ifdef(CONFIG_WATCHDOG src/watchdog)
-

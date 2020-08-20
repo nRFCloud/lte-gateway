@@ -10,16 +10,16 @@ module-str=Log level for board
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 
 config BOARD_NRF52840_GPIO_RESET
-        bool "Use nRF52840 PCA20035 GPIO reset pin"
-        default y
-        help
-          Use a GPIO pin to reset the nRF52840 controller and let it wait
-          until all bytes traveling to the H4 device have been received
-          and drained, thus ensuring communication can begin correctly.
+	bool "Use nRF52840 PCA20035 GPIO reset pin"
+	default y
+	help
+	  Use a GPIO pin to reset the nRF52840 controller and let it wait
+	  until all bytes traveling to the H4 device have been received
+	  and drained, thus ensuring communication can begin correctly.
 
 config BOARD_NRF52840_GPIO_RESET_PIN
-        int "Reset pin"
-        default 13
-        depends on BOARD_NRF52840_GPIO_RESET
-        help
-          GPIO pin on the nRF9160 used to reset the nRF52840.
+	int "Reset pin"
+	default 13
+	depends on BOARD_NRF52840_GPIO_RESET
+	help
+	  GPIO pin on the nRF9160 used to reset the nRF52840.
