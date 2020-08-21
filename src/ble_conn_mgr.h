@@ -42,7 +42,7 @@ typedef struct connected_ble_devices {
 } connected_ble_devices;
 
 int ble_conn_mgr_add_conn(char *addr, char *addr_type);
-void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
+int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 				char *path, bool ccc);
 int ble_conn_mgr_remove_conn(char *addr);
 int ble_conn_mgr_get_free_conn(connected_ble_devices **conn_ptr);

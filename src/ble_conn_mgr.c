@@ -3,6 +3,7 @@
 #include <string.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
+#include <settings/settings.h>
 
 #include "ble_conn_mgr.h"
 #include "ble_codec.h"
@@ -37,16 +38,15 @@ static void process_connection(int i)
 	if (!dev->added_to_whitelist) {
 		ble_add_to_whitelist(dev->addr, dev->addr_type);
 		dev->added_to_whitelist = true;
-		/* Maybe not the right spot to send this. IDK. */
 		update_shadow(dev->addr, true, false);
 		LOG_INF("Device added to whitelist.");
 	}
 
 	/* Not connected. Update the shadow. */
 	if (dev->connected && !dev->shadow_updated) {
-		/* Maybe not the right spot to send this. IDK. */
-		update_shadow(dev->addr, false, true);
-		dev->shadow_updated = true;
+		/* TODO: remove? Maybe not the right spot to send this. IDK. */
+		/* device_shadow_data_encode(dev->addr, false, true); */
+		/* dev->shadow_updated = true; */
 	}
 
 	/* Connected. Do discovering if not discovered or currently
@@ -74,7 +74,8 @@ static void process_connection(int i)
 		irq_unlock(lock);
 
 		/* Maybe not the right spot to send this. IDK. */
-		update_shadow(dev->addr, false, true);
+		/* device_shadow_data_encode(dev->addr, false, true); */
+		/* update_shadow(dev->addr, false, true); */
 	}
 }
 
@@ -140,12 +141,16 @@ void ble_conn_mgr_update_connections()
 			}
 
 			if (dev->disconnect) {
-				LOG_INF("Device disconnecting");
+				LOG_INF("cloud: disconnect device");
 				ble_remove_from_whitelist(dev->addr,
 							  dev->addr_type);
 				disconnect_device_by_addr(dev->addr,
 							  dev->addr_type);
 				ble_conn_mgr_conn_reset(i);
+				if (IS_ENABLED(CONFIG_SETTINGS)) {
+					LOG_INF("Saving settings");
+					settings_save();
+				}
 			}
 		}
 	}
@@ -172,15 +177,18 @@ void ble_conn_mgr_clear_desired()
 	}
 }
 
-void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
+int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 				char *path, bool ccc)
 {
+	int err = 0;
 	char path_str[BT_MAX_PATH_LEN];
 	char service_uuid[BT_UUID_STR_LEN];
 	char ccc_uuid[BT_UUID_STR_LEN];
 	char chrc_uuid[BT_UUID_STR_LEN];
-
 	u8_t path_depth = 0;
+	bool found = false;
+
+	path_str[0] = '\0';
 
 	LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
@@ -191,6 +199,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 			continue;
 		}
 
+		found = true;
 		path_depth = uuid_handle->path_depth;
 		LOG_DBG("Path Depth %d", path_depth);
 
@@ -220,11 +229,18 @@ void ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 		}
 	}
 
+	if (!found) {
+		LOG_ERR("path not generated; handle %u not found for addr %s",
+			handle, log_strdup(conn_ptr->addr));
+		err = -ENXIO;
+	}
+
 	bt_to_upper(path_str, strlen(path_str));
 	memset(path, 0, BT_MAX_PATH_LEN);
 	memcpy(path, path_str, strlen(path_str));
 
 	LOG_DBG("Generated Path: %s", log_strdup(path_str));
+	return err;
 }
 
 int ble_conn_mgr_add_conn(char *addr, char *addr_type)
@@ -482,6 +498,11 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle,
 {
 	int err = 0;
 	char str[BT_UUID_STR_LEN];
+
+	if (!conn_ptr) {
+		LOG_ERR("no connection ptr!");
+		return 1;
+	}
 
 	if (conn_ptr->num_pairs >= MAX_UUID_PAIRS) {
 		LOG_ERR("Max uuid pair limit reached");
