@@ -28,6 +28,7 @@
 #include <time.h>
 #include <posix/time.h>
 #include <fw_info.h>
+#include <settings/settings.h>
 
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
@@ -448,6 +449,18 @@ void connect_to_cloud(const s32_t connect_delay_s)
 		k_delayed_work_cancel(&cloud_reboot_work);
 	} else {
 		initial_connect = false;
+
+		char id[256];
+		int ret;
+
+		LOG_INF("Retrieve device ID...");
+		ret = cloud_get_id(cloud_backend, id, sizeof(id));
+		if (ret) {
+			LOG_ERR("Could not retrieve ID: %d", ret);
+		} else {
+			LOG_INF("Device ID = %s", id);
+			LOG_INF("Endpoint = %s", CONFIG_NRF_CLOUD_HOST_NAME);
+		}
 	}
 
 	k_delayed_work_submit_to_queue(&application_work_q,
@@ -703,10 +716,10 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		k_delayed_work_cancel(&cloud_reboot_work);
 		k_sem_take(&cloud_disconnected, K_NO_WAIT);
 		atomic_set(&cloud_connect_attempts, 0);
-#if defined(CONFIG_CLOUD_PERSISTENT_SESSIONS)
+
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
-#endif
+
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		s32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
 
@@ -783,7 +796,6 @@ static void cloud_api_init(void)
 			ret);
 		cloud_error_handler(ret);
 	}
-
 }
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
@@ -895,6 +907,11 @@ void main(void)
 #endif
 
 	ble_init();
+
+	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
+		LOG_INF("Loading settings");
+		settings_load();
+	}
 
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
