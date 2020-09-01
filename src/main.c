@@ -295,21 +295,21 @@ void error_handler(enum error_type err_type, int err_code)
 		/* Blinking all LEDs ON/OFF in pairs (1 and 4, 2 and 3)
 		 * if there is an application error.
 		 */
-		ui_led_set_pattern(UI_LED_ERROR_CLOUD);
+		ui_led_set_pattern(UI_LED_ERROR_CLOUD, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_CLOUD: %d", err_code);
 		break;
 	case ERROR_BSD_RECOVERABLE:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
 		 */
-		ui_led_set_pattern(UI_LED_ERROR_BSD_REC);
+		ui_led_set_pattern(UI_LED_ERROR_BSD_REC, PWM_DEV0);
 		LOG_ERR("Error of type ERROR_BSD_RECOVERABLE: %d", err_code);
 		break;
 	default:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 2, 3 and 4)
 		 * undefined error.
 		 */
-		ui_led_set_pattern(UI_LED_ERROR_UNKNOWN);
+		ui_led_set_pattern(UI_LED_ERROR_UNKNOWN, PWM_DEV_0);
 		LOG_ERR("Unknown error type: %d, code: %d",
 			err_type, err_code);
 		break;
