@@ -11,6 +11,15 @@ set(BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR})
 set(spm_CONF_FILE
     ${CMAKE_CURRENT_SOURCE_DIR}/child_secure_partition_manager.conf)
 
+# enable ability to perform FOTA from NCS 1.2.0 gw to newer
+# e.g., west build -p auto -b apricity_gateway_nrf9160ns -d build_dbg -- -DFOTA_OLD_GW=y
+if(FOTA_OLD_GW)
+				set(PM_STATIC_YML_FILE
+					${CMAKE_CURRENT_SOURCE_DIR}/old_gw_pm_static.yml
+					)
+				message("FOTA for old gw")
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(lte-ble-gateway)
 zephyr_compile_definitions(PROJECT_NAME=${PROJECT_NAME})
