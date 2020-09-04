@@ -4,7 +4,12 @@
  * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
  */
 
+#include <zephyr.h>
 #include <logging/log.h>
+#include <nrf9160.h>
+#include <hal/nrf_gpio.h>
+#include <bsd.h>
+#include <modem/lte_lc.h>
 
 #include "ui.h"
 #include "led_pwm.h"
@@ -12,7 +17,14 @@
 LOG_MODULE_REGISTER(ui, CONFIG_UI_LOG_LEVEL);
 
 static enum ui_led_pattern current_led_state;
+
 static ui_callback_t callback;
+
+#define CONFIG_MODEM_WAKEUP_PIN 17
+
+bool falling_edge = true;
+bool shutdown = false;
+uint32_t timer_status = 0;
 
 #if !defined(CONFIG_UI_LED_USE_PWM)
 static struct k_delayed_work leds_update_work;
@@ -52,6 +64,36 @@ static void leds_update(struct k_work *work)
 }
 #endif /* CONFIG_UI_LED_USE_PWM */
 
+static void button_press_timer_handler(struct k_timer *timer)
+{
+	if (ui_button_is_active(1)) {
+		ui_led_set_pattern(UI_LTE_DISCONNECTED, 0);
+		ui_led_set_pattern(UI_LTE_DISCONNECTED, 1);
+		shutdown = true;
+	}
+}
+K_TIMER_DEFINE(button_press_timer, button_press_timer_handler, NULL);
+
+void power_button_handler(void)
+{
+	if (falling_edge && ui_button_is_active(1)) {
+		k_timer_start(&button_press_timer, K_SECONDS(1), K_SECONDS(0));
+		falling_edge = false;
+	} else if (!falling_edge && !ui_button_is_active(1)) {
+		falling_edge = true;
+
+		if (shutdown) {
+			nrf_gpio_cfg_input(CONFIG_MODEM_WAKEUP_PIN,
+							   NRF_GPIO_PIN_PULLUP);
+			nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
+								   NRF_GPIO_PIN_SENSE_LOW);
+			lte_lc_power_off();
+			bsd_shutdown();
+			NRF_REGULATORS_NS->SYSTEMOFF = 1;
+		}
+	}
+}
+
 /**@brief Callback for button events from the DK buttons and LEDs library. */
 static void button_handler(u32_t button_states, u32_t has_changed)
 {
@@ -81,11 +123,13 @@ static void button_handler(u32_t button_states, u32_t has_changed)
 	}
 }
 
-void ui_led_set_pattern(enum ui_led_pattern state)
+
+
+void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
 {
 	current_led_state = state;
 #ifdef CONFIG_UI_LED_USE_PWM
-	ui_led_set_effect(state);
+	ui_led_set_effect(state, led_num);
 #else
 	current_led_state = state;
 #endif /* CONFIG_UI_LED_USE_PWM */
@@ -96,10 +140,10 @@ enum ui_led_pattern ui_led_get_pattern(void)
 	return current_led_state;
 }
 
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue)
+int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num)
 {
 #ifdef CONFIG_UI_LED_USE_PWM
-	return ui_led_set_rgb(red, green, blue);
+	return ui_led_set_rgb(red, green, blue, led_num);
 #else
 	return -ENOTSUP;
 #endif /* CONFIG_UI_LED_USE_PWM */

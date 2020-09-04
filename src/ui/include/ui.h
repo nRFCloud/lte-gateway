@@ -23,20 +23,10 @@
 extern "C" {
 #endif
 
-#define UI_BUTTON_1			1
-#define UI_BUTTON_2			2
-#define UI_SWITCH_1			3
-#define UI_SWITCH_2			4
-
 #define UI_LED_1			1
 #define UI_LED_2			2
 #define UI_LED_3			3
 #define UI_LED_4			4
-
-#define UI_NMOS_1			0
-#define UI_NMOS_2			1
-#define UI_NMOS_3			2
-#define UI_NMOS_4			3
 
 #define UI_LED_ON(x)			(x)
 #define UI_LED_BLINK(x)			((x) << 8)
@@ -44,6 +34,9 @@ extern "C" {
 #define UI_LED_GET_BLINK(x)		(((x) >> 8) & 0xFF)
 
 #ifdef CONFIG_UI_LED_USE_PWM
+
+#define PWM_DEV_0                       0
+#define PWM_DEV_1                       1
 
 #define UI_LED_ON_PERIOD_NORMAL		500
 #define UI_LED_OFF_PERIOD_NORMAL	5000
@@ -77,16 +70,19 @@ extern "C" {
 #define UI_LED_GPS_SEARCHING_COLOR	UI_LED_COLOR_PURPLE
 #define UI_LED_GPS_BLOCKED_COLOR	UI_LED_COLOR_BLUE
 #define UI_LED_GPS_FIX_COLOR		UI_LED_COLOR_GREEN
+#define UI_BLE_DISCONNECTED_COLOR 	UI_LED_COLOR_WHITE
+#define UI_BLE_CONNECTED_COLOR 		UI_LED_COLOR_WHITE
 
 #else
 
 #define UI_LED_ON_PERIOD_NORMAL		K_MSEC(500)
-#define UI_LED_OFF_PERIOD_NORMAL	K_MSEC(500)
+#define UI_LED_OFF_PERIOD_NORMAL 	K_MSEC(500)
 
 #endif /* CONFIG_UI_LED_USE_PWM */
 
 /**@brief UI LED state pattern definitions. */
-enum ui_led_pattern {
+enum ui_led_pattern
+{
 #ifdef CONFIG_UI_LED_USE_PWM
 	UI_LTE_DISCONNECTED,
 	UI_LTE_CONNECTING,
@@ -102,7 +98,10 @@ enum ui_led_pattern {
 	UI_LED_ERROR_UNKNOWN,
 	UI_LED_GPS_SEARCHING,
 	UI_LED_GPS_BLOCKED,
-	UI_LED_GPS_FIX
+	UI_LED_GPS_FIX,
+	UI_BLE_DISCONNECTED,
+	UI_BLE_CONNECTED
+
 #else /* LED patterns without using PWM. */
 	UI_LTE_DISCONNECTED	= UI_LED_ON(0),
 	UI_LTE_CONNECTING	= UI_LED_BLINK(DK_LED3_MSK),
@@ -158,7 +157,7 @@ int ui_init(ui_callback_t cb);
  *
  * @param pattern LED pattern.
  */
-void ui_led_set_pattern(enum ui_led_pattern pattern);
+void ui_led_set_pattern(enum ui_led_pattern pattern, uint8_t led_num);
 
 /**
  * @brief Sets a LED's state. Only the one LED is affected, the rest of the
@@ -186,7 +185,7 @@ enum ui_led_pattern ui_led_get_pattern(void);
  *
  * @return 0 on success or negative error value on failure.
  */
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue);
+int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
 
 /**
  * @brief Get the state of a button.
@@ -197,38 +196,7 @@ int ui_led_set_color(u8_t red, u8_t green, u8_t blue);
  */
 bool ui_button_is_active(u32_t button);
 
-/**
- * @brief Set the buzzer frequency.
- *
- * @param frequency Frequency. If set to 0, the buzzer is disabled.
- *		    The frequency is limited to the range 100 - 10 000 Hz.
- * @param intensity Intensity of the buzzer output. If set to 0, the buzzer is
- *		    disabled.
- *		    The frequency is limited to the range 0 - 100 %.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_buzzer_set_frequency(u32_t frequency, u8_t intensity);
-
-/**
- * @brief Write value to pin controlling NMOS transistor.
- *
- * @param nmos_idx	NMOS to control.
- * @param value		1 sets high signal on NMOS gate, 0 sets it low.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_nmos_write(size_t nmos_idx, u8_t value);
-
-/**
- * @brief Control NMOS with PWM signal.
- *
- * @param period	PWM signal period in microseconds.
- * @param pulse	PWM signal Pulse in microseconds.
- *
- * @return 0 on success or negative error value on failure.
- */
-int ui_nmos_pwm_set(size_t nmos_idx, u32_t period, u32_t pulse);
+void power_button_handler(void);
 
 #ifdef __cplusplus
 }
