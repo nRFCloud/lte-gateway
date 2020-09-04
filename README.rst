@@ -59,16 +59,16 @@ The application state is indicated by the LEDs.
      - Connecting to the nRF Cloud
    * - Yellow Pulse
      - Waiting for user association
-   * - White Solid
-     - Connected, read for BLE connections
+   * - Blue Pulse
+     - Connected, ready for BLE connections
    * - Red
      - Error
 
    * - LED 2 color
      - State
-   * - Blue Pulse
+   * - White Pulse
      - Waiting for Bluetooth LE connection
-   * - Blue Solid
+   * - White Solid
      - Bluetooth LE connection established
 
 Building and running
