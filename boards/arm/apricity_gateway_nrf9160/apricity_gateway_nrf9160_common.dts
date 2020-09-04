@@ -87,7 +87,7 @@
 	ch2-inverted;
 };
 
-/* PWM0 is intended for RGB LED control */
+/* PWM1 is intended for RGB LED control */
 &pwm1 {
 	status = "okay";
 	ch0-pin = <26>;

@@ -40,7 +40,9 @@ static const struct led_effect effect[] = {
 	[UI_CLOUD_CONNECTING] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
 					UI_LED_OFF_PERIOD_NORMAL,
 					UI_CLOUD_CONNECTING_COLOR),
-	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_ON(UI_LED_COLOR_WHITE),
+	[UI_CLOUD_CONNECTED] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
+					UI_LED_OFF_PERIOD_NORMAL,
+					UI_CLOUD_CONNECTED_COLOR),
 	[UI_CLOUD_PAIRING] = LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
 					UI_LED_OFF_PERIOD_NORMAL,
 					UI_CLOUD_PAIRING_COLOR),
@@ -227,8 +229,7 @@ static void led_update(struct led *led)
 int ui_leds_init(void)
 {
 	const char *dev1_name = CONFIG_UI_LED_PWM_1_DEV_NAME;
-
-        const char *dev2_name = CONFIG_UI_LED_PWM_2_DEV_NAME;
+    const char *dev2_name = CONFIG_UI_LED_PWM_2_DEV_NAME;
 
 	int err = 0;
 
@@ -273,7 +274,7 @@ void ui_leds_start(void)
 	}
 #endif
 	led_update(&leds_1);
-        led_update(&leds_2);
+    led_update(&leds_2);
 }
 
 void ui_leds_stop(void)
@@ -290,18 +291,15 @@ void ui_leds_stop(void)
 	}
 #endif
 	pwm_off(&leds_1, 0);
-        pwm_off(&leds_2, 1);
+    pwm_off(&leds_2, 1);
 }
 
 void ui_led_set_effect(enum ui_led_pattern state, uint8_t led_num)
 {
-        if(led_num == 0)
-        {
+        if(led_num == 0) {
           leds_1.effect = &effect[state];
           led_update(&leds_1);
-        }
-        else
-        {
+        } else {
           leds_2.effect = &effect[state];
           led_update(&leds_2);
         }
@@ -317,16 +315,13 @@ int ui_led_set_rgb(u8_t red, u8_t green, u8_t blue, uint8_t led_num)
 	memcpy((void *)custom_effect.steps, (void *)effect.steps,
 		effect.step_count * sizeof(struct led_effect_step));
 
-        if(led_num == 0)
-        {
-          leds_1.effect = &custom_effect;
-          led_update(&leds_1);
-        }
-        else
-        {
-          leds_2.effect = &custom_effect;
-          led_update(&leds_2);
-        }
+	if(led_num == 0) {
+		leds_1.effect = &custom_effect;
+		led_update(&leds_1);
+	} else {
+		leds_2.effect = &custom_effect;
+		led_update(&leds_2);
+	}
 
 	return 0;
 }

@@ -20,7 +20,7 @@ static enum ui_led_pattern current_led_state;
 
 static ui_callback_t callback;
 
-#define CONFIG_SLM_MODEM_WAKEUP_PIN 17
+#define CONFIG_MODEM_WAKEUP_PIN 17
 
 bool falling_edge = true;
 bool shutdown = false;
@@ -66,8 +66,7 @@ static void leds_update(struct k_work *work)
 
 static void button_press_timer_handler(struct k_timer *timer)
 {
-	if (ui_button_is_active(1))
-	{
+	if (ui_button_is_active(1)) {
 		ui_led_set_pattern(UI_LTE_DISCONNECTED, 0);
 		ui_led_set_pattern(UI_LTE_DISCONNECTED, 1);
 		shutdown = true;
@@ -77,19 +76,16 @@ K_TIMER_DEFINE(button_press_timer, button_press_timer_handler, NULL);
 
 void power_button_handler(void)
 {
-	if (falling_edge && ui_button_is_active(1))
-	{
+	if (falling_edge && ui_button_is_active(1)) {
 		k_timer_start(&button_press_timer, K_SECONDS(1), K_SECONDS(0));
 		falling_edge = false;
-	}
-	else if (!falling_edge && !ui_button_is_active(1))
-	{
+	} else if (!falling_edge && !ui_button_is_active(1)) {
 		falling_edge = true;
-		if (shutdown)
-		{
-			nrf_gpio_cfg_input(CONFIG_SLM_MODEM_WAKEUP_PIN,
+
+		if (shutdown) {
+			nrf_gpio_cfg_input(CONFIG_MODEM_WAKEUP_PIN,
 							   NRF_GPIO_PIN_PULLUP);
-			nrf_gpio_cfg_sense_set(CONFIG_SLM_MODEM_WAKEUP_PIN,
+			nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
 								   NRF_GPIO_PIN_SENSE_LOW);
 			lte_lc_power_off();
 			bsd_shutdown();
