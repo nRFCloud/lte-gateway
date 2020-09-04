@@ -20,6 +20,7 @@
 #include "ctype.h"
 #include "nrf_cloud_transport.h"
 #include "ble_conn_mgr.h"
+#include "ui.h"
 
 #define SEND_NOTIFY_STACK_SIZE 2048
 #define SEND_NOTIFY_PRIORITY 9
@@ -886,6 +887,8 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 	ble_conn_set_connected(addr_trunc, true);
 	ble_remove_from_whitelist(addr_trunc, connection_ptr->addr_type);
 
+	ui_led_set_pattern(UI_BLE_CONNECTED, PWM_DEV_1);
+
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 }
@@ -918,6 +921,8 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 		ble_add_to_whitelist(connection_ptr->addr,
 				     connection_ptr->addr_type);
 	}
+
+	ui_led_set_pattern(UI_BLE_DISCONNECTED, PWM_DEV_1);
 
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
