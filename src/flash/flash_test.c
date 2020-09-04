@@ -31,116 +31,125 @@
 
 /**@brief Set the external mem control pin to high to 
   * enable access to the external memory chip. */
-static uint8_t flash_test_init()
+static int flash_test_init(struct device *dev)
 {
-    struct device *port;
-    int err;
+	struct device *port;
+	int err;
 
-    port = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
-    if (!port)
-    {
-        return -EIO;
-    }
+	printk("%s\n", __func__);
 
-    err = gpio_pin_configure(port, EXT_MEM_CTRL_PIN, GPIO_OUTPUT_HIGH);
-    if (err)
-    {
-        return err;
-    }
+	port = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
+	if (!port) {
+		printk("error on device_get_binding(): %d\n", errno);
+		return -EIO;
+	}
 
-    err = gpio_pin_set(port, EXT_MEM_CTRL_PIN, 1);
-    if (err)
-    {
-        return err;
-    }
+	err = gpio_pin_configure(port, EXT_MEM_CTRL_PIN, GPIO_OUTPUT_HIGH);
+	if (err) {
+		printk("error on gpio_pin_configure(): %d\n", err);
+		return err;
+	}
 
-    return err;
+	err = gpio_pin_set(port, EXT_MEM_CTRL_PIN, 1);
+	if (err) {
+		printk("error on gpio_pin_set(): %d\n", err);
+		return err;
+	}
+
+	printk("init complete\n");
+	return err;
 }
+
 SYS_INIT(flash_test_init, POST_KERNEL, CONFIG_SPI_NOR_INIT_PRIORITY);
 
-static void flash_test()
+static int flash_test(struct device *dev)
 {
-    const u8_t expected[] = {0x55, 0xaa, 0x66, 0x99};
-    const size_t len = sizeof(expected);
-    u8_t buf[sizeof(expected)];
-    struct device *flash_dev;
-    int rc;
+	const u8_t expected[] = {0x55, 0xaa, 0x66, 0x99};
+	const size_t len = sizeof(expected);
+	u8_t buf[sizeof(expected)];
+	struct device *flash_dev;
+	int rc;
+	int ret = 0;
 
-    printf("\n" FLASH_NAME " SPI flash testing\n");
-    printf("==========================\n");
+	printk("\n" FLASH_NAME " SPI flash testing\n");
+	printk("==========================\n");
 
-    if(!flash_test_init())
-    {
-        printf("SPI Control init failed\n");
-    }
+	if (flash_test_init(NULL)) {
+		printk("SPI Control init failed\n");
+	}
 
-    flash_dev = device_get_binding(FLASH_DEVICE);
+	flash_dev = device_get_binding(FLASH_DEVICE);
 
-    if (!flash_dev)
-    {
-        printf("SPI flash driver %s was not found!\n",
-            FLASH_DEVICE);
-        return;
-    }
+	if (!flash_dev) {
+		printk("SPI flash driver %s was not found!\n",
+		       FLASH_DEVICE);
+		ret = -EIO;
+		goto error;
+	}
 
-    /* Write protection needs to be disabled before each write or
-        * erase, since the flash component turns on write protection
-        * automatically after completion of write and erase
-        * operations.
-        */
-    printf("\nTest 1: Flash erase\n");
-    flash_write_protection_set(flash_dev, false);
+	/* Write protection needs to be disabled before each write or
+	    * erase, since the flash component turns on write protection
+	    * automatically after completion of write and erase
+	    * operations.
+	    */
+	printk("\nTest 1: Flash erase: ");
+	flash_write_protection_set(flash_dev, false);
 
-    rc = flash_erase(flash_dev, FLASH_TEST_REGION_OFFSET,
-                    FLASH_SECTOR_SIZE);
-    if (rc != 0)
-    {
-        printf("Flash erase failed! %d\n", rc);
-    }
-    else
-    {
-        printf("Flash erase succeeded!\n");
-    }
+	rc = flash_erase(flash_dev, FLASH_TEST_REGION_OFFSET,
+			 FLASH_SECTOR_SIZE);
+	if (rc != 0) {
+		printk("FAIL - %d\n", rc);
+	} else {
+		printk("PASS\n");
+	}
 
-    printf("\nTest 2: Flash write\n");
-    flash_write_protection_set(flash_dev, false);
+	printk("\nTest 2: Flash write %u bytes: ", len);
+	flash_write_protection_set(flash_dev, false);
 
-    printf("Attempting to write %u bytes\n", len);
-    rc = flash_write(flash_dev, FLASH_TEST_REGION_OFFSET, expected, len);
-    if (rc != 0)
-    {
-        printf("Flash write failed! %d\n", rc);
-        return;
-    }
+	rc = flash_write(flash_dev, FLASH_TEST_REGION_OFFSET, expected, len);
+	if (rc != 0) {
+		printk("FAIL - %d\n", rc);
+		ret = -EIO;
+		goto error;
+	} else {
+		printk("PASS\n");
+	}
 
-    memset(buf, 0, len);
-    rc = flash_read(flash_dev, FLASH_TEST_REGION_OFFSET, buf, len);
-    if (rc != 0)
-    {
-        printf("Flash read failed! %d\n", rc);
-        return;
-    }
+	printk("\nTest 3: Flash read %u bytes: ", len);
+	memset(buf, 0, len);
+	rc = flash_read(flash_dev, FLASH_TEST_REGION_OFFSET, buf, len);
+	if (rc != 0) {
+		printk("FAIL - %d\n", rc);
+		ret = -EIO;
+		goto error;
+	} else {
+		printk("PASS\n");
+	}
 
-    if (memcmp(expected, buf, len) == 0)
-    {
-        printf("Data read matches data written. Good!!\n");
-    }
-    else
-    {
-        const u8_t *wp = expected;
-        const u8_t *rp = buf;
-        const u8_t *rpe = rp + len;
+	printk("\nTest 4: Compare %u bytes: ", len);
+	if (memcmp(expected, buf, len) != 0) {
+		const u8_t *wp = expected;
+		const u8_t *rp = buf;
+		const u8_t *rpe = rp + len;
 
-        printf("Data read does not match data written!!\n");
-        while (rp < rpe)
-        {
-            printf("%08x wrote %02x read %02x %s\n",
-                (u32_t)(FLASH_TEST_REGION_OFFSET + (rp - buf)),
-                *wp, *rp, (*rp == *wp) ? "match" : "MISMATCH");
-            ++rp;
-            ++wp;
-        }
-    }
+		ret= -EFAULT;
+		printk("FAIL - %d\n", ret);
+		while (rp < rpe) {
+			printk("%08x wrote %02x read %02x %s\n",
+			       (u32_t)(FLASH_TEST_REGION_OFFSET + (rp - buf)),
+			       *wp, *rp, (*rp == *wp) ? "match" : "MISMATCH");
+			++rp;
+			++wp;
+		}
+		goto error;
+	} else {
+		printk("PASS\n");
+	}
 
+error:
+	for (;;) {
+	}
+	return ret;
 }
+
 SYS_INIT(flash_test, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

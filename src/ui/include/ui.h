@@ -35,14 +35,17 @@ extern "C" {
 
 #ifdef CONFIG_UI_LED_USE_PWM
 
-#define PWM_DEV_0                       0
-#define PWM_DEV_1                       1
+#define PWM_DEV_0			0
+#define PWM_DEV_1			1
 
 #define UI_LED_ON_PERIOD_NORMAL		500
 #define UI_LED_OFF_PERIOD_NORMAL	5000
 #define UI_LED_ON_PERIOD_ERROR		500
 #define UI_LED_OFF_PERIOD_ERROR		500
 
+#define UI_LED_LOW			16
+#define UI_LED_MID			128
+#define UI_LED_HIGH			192
 #define UI_LED_MAX			255
 
 #define UI_LED_COLOR_OFF		LED_COLOR(0, 0, 0)
@@ -52,7 +55,7 @@ extern "C" {
 #define UI_LED_COLOR_WHITE		LED_COLOR(UI_LED_MAX, UI_LED_MAX,      \
 						  UI_LED_MAX)
 #define UI_LED_COLOR_YELLOW		LED_COLOR(UI_LED_MAX, UI_LED_MAX, 0)
-#define UI_LED_COLOR_CYAN		LED_COLOR(0, UI_LED_MAX, UI_LED_MAX)
+#define UI_LED_COLOR_CYAN		LED_COLOR(0, UI_LED_MAX, UI_LED_HIGH)
 #define UI_LED_COLOR_PURPLE		LED_COLOR(UI_LED_MAX, 0, UI_LED_MAX)
 
 #define UI_LTE_DISCONNECTED_COLOR	UI_LED_COLOR_OFF
@@ -70,13 +73,14 @@ extern "C" {
 #define UI_LED_GPS_SEARCHING_COLOR	UI_LED_COLOR_PURPLE
 #define UI_LED_GPS_BLOCKED_COLOR	UI_LED_COLOR_BLUE
 #define UI_LED_GPS_FIX_COLOR		UI_LED_COLOR_GREEN
-#define UI_BLE_DISCONNECTED_COLOR 	UI_LED_COLOR_WHITE
-#define UI_BLE_CONNECTED_COLOR 		UI_LED_COLOR_WHITE
+#define UI_BLE_OFF_COLOR		UI_LED_COLOR_OFF
+#define UI_BLE_DISCONNECTED_COLOR	UI_LED_COLOR_YELLOW
+#define UI_BLE_CONNECTED_COLOR		UI_LED_COLOR_WHITE
 
 #else
 
 #define UI_LED_ON_PERIOD_NORMAL		K_MSEC(500)
-#define UI_LED_OFF_PERIOD_NORMAL 	K_MSEC(500)
+#define UI_LED_OFF_PERIOD_NORMAL	K_MSEC(500)
 
 #endif /* CONFIG_UI_LED_USE_PWM */
 
@@ -99,6 +103,7 @@ enum ui_led_pattern
 	UI_LED_GPS_SEARCHING,
 	UI_LED_GPS_BLOCKED,
 	UI_LED_GPS_FIX,
+	UI_BLE_OFF,
 	UI_BLE_DISCONNECTED,
 	UI_BLE_CONNECTED
 
@@ -157,12 +162,12 @@ int ui_init(ui_callback_t cb);
  *
  * @param pattern LED pattern.
  */
-void ui_led_set_pattern(enum ui_led_pattern pattern, uint8_t led_num);
+void ui_led_set_pattern(enum ui_led_pattern pattern, u8_t led_num);
 
 /**
  * @brief Sets a LED's state. Only the one LED is affected, the rest of the
- *	  LED pattern is preserved. Only has effect if the specified LED is not
- *	  controlled by PWM.
+ * LED pattern is preserved. Only has effect if the specified LED is not
+ * controlled by PWM.
  *
  * @param led LED number to be controlled.
  * @param value 0 turns the LED off, a non-zero value turns the LED on.
@@ -185,7 +190,7 @@ enum ui_led_pattern ui_led_get_pattern(void);
  *
  * @return 0 on success or negative error value on failure.
  */
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
+int ui_led_set_color(u8_t red, u8_t green, u8_t blue, u8_t led_num);
 
 /**
  * @brief Get the state of a button.
@@ -196,7 +201,7 @@ int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
  */
 bool ui_button_is_active(u32_t button);
 
-void power_button_handler(void);
+void power_button_handler(struct ui_evt evt);
 
 #ifdef __cplusplus
 }

@@ -162,7 +162,7 @@ config FLASH_TEST
 	select SPI if FLASH_TEST
 	select SPI_NOR if FLASH_TEST
 	help
-		Enable to test Erase, Write, and Read of external flash.
+	  Enable to test Erase, Write, and Read of external flash.
 
 config SPM_NRF_REGULATORS_NS
 	bool "Regulators is Non-Secure"
