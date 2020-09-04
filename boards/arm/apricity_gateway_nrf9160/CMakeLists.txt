@@ -6,12 +6,10 @@
 
 if(CONFIG_BOARD_APRICITY_GATEWAY_NRF9160 AND NOT DEFINED CONFIG_MCUBOOT)
 	zephyr_library()
-	zephyr_library_sources(board_secure.c)
 endif()
 
 if(CONFIG_BOARD_APRICITY_GATEWAY_NRF9160NS)
 	zephyr_library()
-	zephyr_library_sources(board_nonsecure.c)
 endif()
 
 zephyr_library_sources(nrf52840_reset.c)
