@@ -67,14 +67,15 @@ static void leds_update(struct k_work *work)
 static void button_press_timer_handler(struct k_timer *timer)
 {
 	if (ui_button_is_active(1)) {
-		ui_led_set_pattern(UI_LTE_DISCONNECTED, 0);
-		ui_led_set_pattern(UI_LTE_DISCONNECTED, 1);
+		ui_led_set_pattern(UI_LTE_DISCONNECTED, PWM_DEV_0);
+		ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
 		shutdown = true;
+		LOG_INF("Button pressed; disconnecting!");
 	}
 }
 K_TIMER_DEFINE(button_press_timer, button_press_timer_handler, NULL);
 
-void power_button_handler(void)
+void power_button_handler(struct ui_evt evt)
 {
 	if (falling_edge && ui_button_is_active(1)) {
 		k_timer_start(&button_press_timer, K_SECONDS(1), K_SECONDS(0));
@@ -83,10 +84,11 @@ void power_button_handler(void)
 		falling_edge = true;
 
 		if (shutdown) {
+			LOG_INF("Shutting down...");
 			nrf_gpio_cfg_input(CONFIG_MODEM_WAKEUP_PIN,
-							   NRF_GPIO_PIN_PULLUP);
+					   NRF_GPIO_PIN_PULLUP);
 			nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
-								   NRF_GPIO_PIN_SENSE_LOW);
+					       NRF_GPIO_PIN_SENSE_LOW);
 			lte_lc_power_off();
 			bsd_shutdown();
 			NRF_REGULATORS_NS->SYSTEMOFF = 1;
@@ -125,7 +127,7 @@ static void button_handler(u32_t button_states, u32_t has_changed)
 
 
 
-void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
+void ui_led_set_pattern(enum ui_led_pattern state, u8_t led_num)
 {
 	current_led_state = state;
 #ifdef CONFIG_UI_LED_USE_PWM
@@ -140,7 +142,7 @@ enum ui_led_pattern ui_led_get_pattern(void)
 	return current_led_state;
 }
 
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue, uint8_t led_num)
+int ui_led_set_color(u8_t red, u8_t green, u8_t blue, u8_t led_num)
 {
 #ifdef CONFIG_UI_LED_USE_PWM
 	return ui_led_set_rgb(red, green, blue, led_num);
