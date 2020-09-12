@@ -33,7 +33,8 @@ LOG_MODULE_REGISTER(gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
  */
 /* #define QUEUE_CHAR_WRITES */
 
-static u8_t value_buf[256];
+#define VALUE_BUF_SIZE 256
+static u8_t value_buf[VALUE_BUF_SIZE];
 
 struct cloud_data_t {
 	void *fifo_reserved;
@@ -251,11 +252,10 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 		value_arr = json_object_decode(operation_obj,
 					       "characteristicValue");
 
-		value_len = cJSON_GetArraySize(value_arr);
+		value_len = MIN(cJSON_GetArraySize(value_arr), VALUE_BUF_SIZE);
 
 		for (int i = 0; i < value_len; i++) {
 			cJSON *item = cJSON_GetArrayItem(value_arr, i);
-			/* TODO: add check i < max buf size */
 			value_buf[i] = item->valueint;
 		}
 

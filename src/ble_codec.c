@@ -38,72 +38,51 @@ static bool first_chrc = true;
 	} \
 } while (0)
 
-#define CJADD cJSON_AddItemToObject
+#define CJADDITEM cJSON_AddItemToObject
 #define CJADDREF cJSON_AddItemReferenceToObject
-#define CJADDBOOL cJSON_AddBoolToObject
-#define CJADDNUM cJSON_AddNumberToObject
 #define CJPRINT cJSON_PrintPreallocated
 
-#define CJADDCHK(_a_, _b_, _c_) do { \
-	if ((_c_) == NULL) { \
+#define CJCHK(_a_) do { \
+	if ((_a_) == NULL) { \
+		LOG_ERR("cJSON out of memory in %s", __func__); \
 		goto cleanup; \
 	} \
+} while (0)
+
+#define CJADDCHK(_a_, _b_, _c_) do { \
+	CJCHK(_c_); \
 	cJSON_AddItemToObject((_a_), (_b_), (_c_)); \
 } while (0)
 
-#define CJADDSTR(_a_, _b_, _c_) do { \
-	cJSON *tmp = cJSON_CreateString(_c_); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
-	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while (0)
+#define CJADDBOOL(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddBoolToObject((_a_), (_b_), (_c_)))
 
-#define CJADDBOOLOBJ(_a_, _b_, _c_) do { \
-	cJSON *tmp = cJSON_CreateBool(_c_); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
-	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while (0)
+#define CJADDSTR(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddStringToObject((_a_), (_b_), (_c_)))
 
-#define CJADDNULL(_a_, _b_) do { \
-	cJSON *tmp = cJSON_CreateNull(); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
-	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while (0)
+#define CJADDNUM(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddNumberToObject((_a_), (_b_), (_c_)))
 
-#define CJADDTRUE(_a_, _b_) do { \
-	cJSON *tmp = cJSON_CreateTrue(); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
-	cJSON_AddItemToObject((_a_), (_b_), tmp); \
-} while (0)
+#define CJADDNULL(_a_, _b_) CJCHK( \
+		cJSON_AddNullToObject((_a_), (_b_)))
+
+#define CJPRINT cJSON_PrintPreallocated
 
 #define CJADDARROBJ(_a_, _b_) do { \
 	(_b_) = cJSON_CreateObject(); \
-	if ((_b_) == NULL) { \
-		goto cleanup; \
-	} \
+	CJCHK(_b_); \
 	cJSON_AddItemToArray((_a_), (_b_)); \
 } while (0)
 
 #define CJADDARRNUM(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateNumber((_b_)); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
+	CJCHK(tmp); \
 	cJSON_AddItemToArray((_a_), tmp); \
 } while (0)
 
 #define CJADDARRSTR(_a_, _b_) do { \
 	cJSON *tmp = cJSON_CreateString((_b_)); \
-	if (tmp == NULL) { \
-		goto cleanup; \
-	} \
+	CJCHK(tmp); \
 	cJSON_AddItemToArray((_a_), tmp); \
 } while (0)
 
@@ -191,7 +170,7 @@ int device_found_encode(u8_t num_devices_found, struct ble_msg *msg)
 	CJADDSTR(event, "type", "scan_result");
 	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
 	CJADDSTR(event, "subType", "instant");
-	CJADDTRUE(event, "timeout");
+	CJADDBOOL(event, "timeout", true);
 
 	for (int i = 0; i < num_devices_found; i++) {
 		LOG_INF("Adding device %s RSSI: %d\n",
@@ -212,7 +191,7 @@ int device_found_encode(u8_t num_devices_found, struct ble_msg *msg)
 		CJADDSTR(address, "address", ble_scanned_device[i].addr);
 		CJADDSTR(address, "type", ble_scanned_device[i].type);
 
-		CJADD(device, "address", address);
+		CJADDITEM(device, "address", address);
 		address = NULL;
 	}
 
@@ -630,8 +609,8 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 	CJADDARRSTR(fota_arr, "BOOT");
 
 	CJADDSTR(device, "id", ble_address);
-	CJADDBOOLOBJ(status, "connected", connected);
-	CJADDBOOLOBJ(status, "connecting", connecting);
+	CJADDBOOL(status, "connected", connected);
+	CJADDBOOL(status, "connecting", connecting);
 
 	CJADDREF(service_info, "fota_v1", fota_arr);
 	CJADDREF(gateway_device, "serviceInfo", service_info);
@@ -713,7 +692,7 @@ static int device_discover_add_ccc(char *discovered_json,
 	strcat(msg->buf, discovered_json + 1);
 	strcat(msg->buf, "}");
 
-	LOG_DBG("JSON Size: %d", strlen(msg->buf));
+	LOG_INF("JSON Size: %d", strlen(msg->buf));
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -773,65 +752,32 @@ static int chrc_attr_encode(char *uuid, char *path, u8_t properties,
 	CJADDARRNUM(value_arr, 0);
 
 	/* Check and add properties */
-	switch (properties) {
-
-	case BT_GATT_CHRC_READ:
-		CJADDTRUE(props, "read");
-		break;
-
-	case BT_GATT_CHRC_READ + BT_GATT_CHRC_INDICATE:
-		CJADDTRUE(props, "read");
-		CJADDTRUE(props, "indicate");
-		break;
-
-	case BT_GATT_CHRC_READ + BT_GATT_CHRC_NOTIFY:
-		CJADDTRUE(props, "read");
-		CJADDTRUE(props, "notify");
-		break;
-
-	case BT_GATT_CHRC_WRITE:
-		CJADDTRUE(props, "write");
-		break;
-
-	case BT_GATT_CHRC_WRITE_WITHOUT_RESP:
-		CJADDTRUE(props, "writeWithoutResponse");
-		break;
-
-	case BT_GATT_CHRC_READ + BT_GATT_CHRC_WRITE:
-		CJADDTRUE(props, "read");
-		CJADDTRUE(props, "write");
-		break;
-
-	case BT_GATT_CHRC_READ + BT_GATT_CHRC_WRITE_WITHOUT_RESP:
-		CJADDTRUE(props, "read");
-		CJADDTRUE(props, "writeWithoutResponse");
-		break;
-
-	case BT_GATT_CHRC_INDICATE:
-		CJADDTRUE(props, "indicate");
-		break;
-
-	case BT_GATT_CHRC_NOTIFY:
-		CJADDTRUE(props, "notify");
-		break;
-
-	case BT_GATT_CHRC_INDICATE + BT_GATT_CHRC_WRITE:
-		CJADDTRUE(props, "indicate");
-		CJADDTRUE(props, "write");
-		break;
-
-	case BT_GATT_CHRC_INDICATE + BT_GATT_CHRC_NOTIFY:
-		CJADDTRUE(props, "indicate");
-		CJADDTRUE(props, "notify");
-		break;
-
-	case BT_GATT_CHRC_AUTH:
-		CJADDTRUE(props, "authorizedSignedWrite");
-		break;
-
-	default:
+	if (properties & BT_GATT_CHRC_READ) {
+		CJADDBOOL(props, "read", true);
+	}
+	if (properties & BT_GATT_CHRC_WRITE) {
+		CJADDBOOL(props, "write", true);
+	}
+	if (properties & BT_GATT_CHRC_INDICATE) {
+		CJADDBOOL(props, "indicate", true);
+	}
+	if (properties & BT_GATT_CHRC_NOTIFY) {
+		CJADDBOOL(props, "notify", true);
+	}
+	if (properties & BT_GATT_CHRC_WRITE_WITHOUT_RESP) {
+		CJADDBOOL(props, "writeWithoutResponse", true);
+	}
+	if (properties & BT_GATT_CHRC_AUTH) {
+		CJADDBOOL(props, "authorizedSignedWrite", true);
+	}
+	if ((properties == 0) || ((properties & 
+		~(BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+		  BT_GATT_CHRC_INDICATE | BT_GATT_CHRC_NOTIFY |
+		  BT_GATT_CHRC_WRITE_WITHOUT_RESP |
+		  BT_GATT_CHRC_AUTH)) != 0)) {
 		LOG_ERR("Unknown CHRC property: %d\n", properties);
-		break;
+		cJSON_Delete(parent_chrc);
+		return -EINVAL;
 	}
 
 	CJADDREF(chrc, "properties", props);
@@ -877,7 +823,6 @@ static int ccc_attr_encode(char *uuid, char *path,
 
 	/* Print parent_ccc and add to service */
 	CJPRINT(parent_ccc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-	LOG_DBG("JSON: %s", service_buffer);
 	ret = device_discover_add_ccc(service_buffer, msg);
 
 cleanup:
