@@ -304,7 +304,7 @@ void error_handler(enum error_type err_type, int err_code)
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
 		 */
-		ui_led_set_pattern(UI_LED_ERROR_BSD_REC, PWM_DEV0);
+		ui_led_set_pattern(UI_LED_ERROR_BSD_REC, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_BSD_RECOVERABLE: %d", err_code);
 		break;
 	default:

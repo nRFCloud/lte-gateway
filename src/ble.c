@@ -6,11 +6,14 @@
 
 #include <zephyr.h>
 #include <stdio.h>
+#include <strings.h>
 
+#include <bluetooth/bluetooth.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt_dm.h>
 #include <bluetooth/scan.h>
+#include <bluetooth/hci.h>
 #include <dk_buttons_and_leds.h>
 #include <settings/settings.h>
 
@@ -987,22 +990,6 @@ static struct bt_conn_cb conn_callbacks = {
 	.disconnected = disconnected,
 };
 
-void scan_filter_match(struct bt_scan_device_info *device_info,
-	struct bt_scan_filter_match *filter_match,
-	bool connectable)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(device_info->addr, addr, sizeof(addr));
-
-	LOG_INF("Device found: %s", log_strdup(addr));
-}
-
-void scan_connecting_error(struct bt_scan_device_info *device_info)
-{
-	LOG_ERR("Connection to peer failed!");
-}
-
 static bool data_cb(struct bt_data *data, void *user_data)
 {
 	char *name = user_data;
@@ -1019,7 +1006,9 @@ static bool data_cb(struct bt_data *data, void *user_data)
 
 void ble_device_found_enc_handler(struct k_work *work)
 {
+	LOG_DBG("Encoding scan...");
 	device_found_encode(num_devices_found, &output);
+	LOG_DBG("Sending scan...");
 	g2c_send(output.buf);
 }
 
@@ -1029,11 +1018,12 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
 	struct net_buf_simple *ad)
 {
 	char addr_str[BT_ADDR_LE_STR_LEN];
-	char name[NAME_LEN] = { 0 };
-	bool dup_addr = false;
+	char name[NAME_LEN];
+	ble_scanned_devices *scanned = &ble_scanned_device[num_devices_found];
 
-	(void)memset(name, 0, sizeof(name));
-	bt_data_parse(ad, data_cb, name);
+	if (num_devices_found >= MAX_SCAN_RESULTS) {
+		return;
+	}
 
 	/* We're only interested in connectable events */
 	if (type != BT_HCI_ADV_IND && type != BT_HCI_ADV_DIRECT_IND) {
@@ -1042,41 +1032,43 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
 
 	bt_addr_le_to_str(addr, addr_str, sizeof(addr_str));
 
-	memcpy(ble_scanned_device[num_devices_found].type,
-	       addr_str + BT_ADDR_LE_DEVICE_LEN_SHIFT, BT_ADDR_LE_TYPE_LEN);
-	ble_scanned_device[num_devices_found].type[BT_ADDR_LE_TYPE_LEN] = 0;
-
-	bt_to_upper(addr_str, BT_ADDR_LE_STR_LEN);
-
-	memcpy(ble_scanned_device[num_devices_found].addr, addr_str,
-	       BT_ADDR_LE_DEVICE_LEN);
-	ble_scanned_device[num_devices_found].addr[BT_ADDR_LE_DEVICE_LEN] = 0;
-	ble_scanned_device[num_devices_found].rssi = (int)rssi;
-	memcpy(ble_scanned_device[num_devices_found].name, name, strlen(name));
-
 	/* Check for duplicate addresses */
 	for (int j = 0; j < num_devices_found; j++) {
-		if (!(strcmp(ble_scanned_device[num_devices_found].addr,
-			     ble_scanned_device[j].addr))) {
-			dup_addr = true;
+		if (!(strncasecmp(addr_str,
+				  ble_scanned_device[j].addr,
+				  BT_ADDR_LE_DEVICE_LEN))) {
+			return; /* no need to continue; we saw this */ 
 		}
 	}
 
-	if ((num_devices_found < MAX_SCAN_RESULTS) && (dup_addr == false)) {
-		LOG_INF("Device found: %s (RSSI %d)",
-			ble_scanned_device[num_devices_found].addr, rssi);
-		LOG_INF("Device Name: %s",
-			ble_scanned_device[num_devices_found].name);
-		LOG_INF("Type: %s",
-			ble_scanned_device[num_devices_found].type);
+	memcpy(scanned->type,
+	       addr_str + BT_ADDR_LE_DEVICE_LEN_SHIFT, BT_ADDR_LE_TYPE_LEN);
+	scanned->type[BT_ADDR_LE_TYPE_LEN] = 0;
 
-		num_devices_found++;
-	}
+	bt_to_upper(addr_str, BT_ADDR_LE_STR_LEN);
+	memcpy(scanned->addr, addr_str,
+	       BT_ADDR_LE_DEVICE_LEN);
+	scanned->addr[BT_ADDR_LE_DEVICE_LEN] = 0;
+
+	(void)memset(name, 0, sizeof(name));
+	bt_data_parse(ad, data_cb, name);
+	scanned->name[0] = '\0';
+	memcpy(scanned->name, name, strlen(name));
+
+	scanned->rssi = (int)rssi;
+
+	LOG_INF("Device found: %s (RSSI %d)", scanned->addr, rssi);
+	LOG_INF("Device Name: %s", scanned->name);
+	LOG_INF("Type: %s", scanned->type);
+
+	num_devices_found++;
 }
 
 void scan_off_handler(struct k_work *work)
 {
 	int err;
+
+	LOG_INF("Stopping scan...");
 
 	err = bt_le_scan_stop();
 	if (err) {
@@ -1088,6 +1080,7 @@ void scan_off_handler(struct k_work *work)
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 
+	LOG_DBG("Submitting scan...");
 	k_work_submit(&ble_device_encode_work);
 }
 
@@ -1172,10 +1165,10 @@ void scan_start(void)
 	memset(ble_scanned_device, 0, sizeof(ble_scanned_device));
 
 	struct bt_le_scan_param param = {
-		.type       = BT_HCI_LE_SCAN_ACTIVE,
-		.filter_dup = BT_HCI_LE_SCAN_FILTER_DUP_ENABLE,
-		.interval   = BT_GAP_SCAN_FAST_INTERVAL,
-		.window     = BT_GAP_SCAN_FAST_WINDOW
+		.type     = BT_LE_SCAN_TYPE_ACTIVE,
+		.options  = BT_LE_SCAN_OPT_FILTER_DUPLICATE,
+		.interval = 0x0010,
+		.window   = 0x0010,
 	};
 
 	if (!discover_in_progress) {
@@ -1190,7 +1183,7 @@ void scan_start(void)
 			LOG_INF("Bluetooth active scan enabled");
 
 			/* TODO: Get scan timeout from scan message */
-			k_timer_start(&scan_timer, K_SECONDS(5), K_SECONDS(0));
+			k_timer_start(&scan_timer, K_SECONDS(10), K_SECONDS(0));
 		}
 
 		scan_waiting = false;
