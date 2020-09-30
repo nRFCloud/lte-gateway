@@ -25,7 +25,7 @@
 typedef struct ble_scanned_devices {
 	int rssi;
 	char type[7];
-	char name[30];
+	char name[NAME_LEN];
 	char addr[18];
 } ble_scanned_devices;
 

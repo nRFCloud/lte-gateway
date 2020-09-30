@@ -993,11 +993,13 @@ static struct bt_conn_cb conn_callbacks = {
 static bool data_cb(struct bt_data *data, void *user_data)
 {
 	char *name = user_data;
+	int len = MIN(data->data_len, NAME_LEN - 1);
 
 	switch (data->type) {
 	case BT_DATA_NAME_SHORTENED:
 	case BT_DATA_NAME_COMPLETE:
-		memcpy(name, data->data, MIN(data->data_len, NAME_LEN - 1));
+		memcpy(name, data->data, len);
+		name[len] = '\0';
 		return false;
 	default:
 		return true;
@@ -1050,10 +1052,9 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	       BT_ADDR_LE_DEVICE_LEN);
 	scanned->addr[BT_ADDR_LE_DEVICE_LEN] = 0;
 
-	(void)memset(name, 0, sizeof(name));
+	memset(name, 0, sizeof(name));
 	bt_data_parse(ad, data_cb, name);
-	scanned->name[0] = '\0';
-	memcpy(scanned->name, name, strlen(name));
+	strcpy(scanned->name, name);
 
 	scanned->rssi = (int)rssi;
 
