@@ -4,7 +4,7 @@
 //
 //#include "peripheral_dfu.h"
 //
-//u8_t peripheral_dfu(char *buf, size_t len)
+//uint8_t peripheral_dfu(char *buf, size_t len)
 //{
 //  int err=0;
 //  printk("***TEST FOTA DATA PRINT\n");

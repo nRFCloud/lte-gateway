@@ -149,7 +149,7 @@ cleanup:
 	return ret;
 }
 
-int device_found_encode(u8_t num_devices_found, struct ble_msg *msg)
+int device_found_encode(uint8_t num_devices_found, struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -306,7 +306,7 @@ cleanup:
 }
 
 int device_value_changed_encode(char *ble_address, char *uuid, char *path,
-				char *value, u16_t value_length,
+				char *value, uint16_t value_length,
 				struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -363,7 +363,7 @@ cleanup:
 }
 
 int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
-				     char *value, u16_t value_length,
+				     char *value, uint16_t value_length,
 				     struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -421,7 +421,7 @@ cleanup:
 
 int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 					   char *path, char *value,
-					   u16_t value_length,
+					   uint16_t value_length,
 					   struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -478,7 +478,7 @@ cleanup:
 }
 
 int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
-			    char *value, u16_t value_length,
+			    char *value, uint16_t value_length,
 			    struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -730,7 +730,7 @@ cleanup:
 	return ret;
 }
 
-static int chrc_attr_encode(char *uuid, char *path, u8_t properties,
+static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 			     connected_ble_devices *ble_conn_ptr,
 			    struct ble_msg *msg)
 {
@@ -832,8 +832,8 @@ cleanup:
 	return ret;
 }
 
-static int attr_encode(u16_t attr_type, char *uuid_str, char *path,
-		       u8_t properties, connected_ble_devices *ble_conn_ptr,
+static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
+		       uint8_t properties, connected_ble_devices *ble_conn_ptr,
 		       struct ble_msg *msg)
 {
 	int ret = 0;
@@ -887,7 +887,7 @@ int device_discovery_encode(connected_ble_devices *conn_ptr,
 	char path_dep_two_str[BT_MAX_UUID_LEN];
 	char path_str[BT_MAX_PATH_LEN];
 	int ret = 0;
-	u8_t num_encoded = 0;
+	uint8_t num_encoded = 0;
 
 	first_service = true;
 

@@ -32,7 +32,7 @@ void ui_leds_stop(void);
 void ui_led_set_effect(enum ui_led_pattern state, uint8_t led_num);
 
 /**@brief Sets RGB and light intensity values, in 0 - 255 ranges. */
-int ui_led_set_rgb(u8_t red, u8_t green, u8_t blue, uint8_t led_num);
+int ui_led_set_rgb(uint8_t red, uint8_t green, uint8_t blue, uint8_t led_num);
 
 #ifdef __cplusplus
 }

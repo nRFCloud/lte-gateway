@@ -34,7 +34,7 @@ LOG_MODULE_REGISTER(gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
 /* #define QUEUE_CHAR_WRITES */
 
 #define VALUE_BUF_SIZE 256
-static u8_t value_buf[VALUE_BUF_SIZE];
+static uint8_t value_buf[VALUE_BUF_SIZE];
 
 struct cloud_data_t {
 	void *fifo_reserved;
@@ -42,7 +42,7 @@ struct cloud_data_t {
 	char uuid[UUID_STR_LEN];
 	bool read;
 	bool sub;
-	u8_t client_char_config;
+	uint8_t client_char_config;
 };
 
 K_FIFO_DEFINE(cloud_data_fifo);
@@ -58,7 +58,7 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 							     K_NO_WAIT);
 
 		if (cloud_data != NULL) {
-			/* u32_t lock = irq_lock(); */
+			/* uint32_t lock = irq_lock(); */
 			k_mutex_lock(&lock, K_FOREVER);
 
 			if (cloud_data->sub) {
@@ -101,7 +101,7 @@ static bool compare(const char *s1, const char *s2)
 	return !strncmp(s1, s2, strlen(s2));
 }
 
-u8_t gateway_handler(const struct nct_gw_data *gw_data)
+uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 {
 	int ret = 0;
 	cJSON *root_obj;
@@ -115,11 +115,11 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 	cJSON *chrc_uuid;
 	cJSON *service_uuid;
 	cJSON *desc_arr;
-	u8_t desc_buf[2] = {0};
-	u8_t desc_len = 0;
+	uint8_t desc_buf[2] = {0};
+	uint8_t desc_len = 0;
 
 	cJSON *value_arr;
-	u8_t value_len = 0;
+	uint8_t value_len = 0;
 
 	root_obj = cJSON_Parse(gw_data->data.ptr);
 

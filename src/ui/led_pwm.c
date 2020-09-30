@@ -21,8 +21,8 @@ struct led {
 	size_t id;
 	struct led_color color;
 	const struct led_effect *effect;
-	u16_t effect_step;
-	u16_t effect_substep;
+	uint16_t effect_step;
+	uint16_t effect_substep;
 
 	struct k_delayed_work work;
 };
@@ -153,7 +153,7 @@ static void led_1_work_handler(struct k_work *work)
 	}
 
 	if (leds_1.effect_step < leds_1.effect->step_count) {
-		s32_t next_delay =
+		int32_t next_delay =
 			leds_1.effect->steps[leds_1.effect_step].substep_time;
 
 		k_delayed_work_submit(&leds_1.work, K_MSEC(next_delay));
@@ -191,7 +191,7 @@ static void led_2_work_handler(struct k_work *work)
 	}
 
 	if (leds_2.effect_step < leds_2.effect->step_count) {
-		s32_t next_delay =
+		int32_t next_delay =
 			leds_2.effect->steps[leds_2.effect_step].substep_time;
 
 		k_delayed_work_submit(&leds_2.work, K_MSEC(next_delay));
@@ -213,7 +213,7 @@ static void led_update(struct led *led)
 	__ASSERT_NO_MSG(led->effect->steps);
 
 	if (led->effect->step_count > 0) {
-		s32_t next_delay =
+		int32_t next_delay =
 			led->effect->steps[led->effect_step].substep_time;
 
 		k_delayed_work_submit(&led->work, K_MSEC(next_delay));
@@ -299,7 +299,7 @@ void ui_led_set_effect(enum ui_led_pattern state, uint8_t led_num)
 	}
 }
 
-int ui_led_set_rgb(u8_t red, u8_t green, u8_t blue, uint8_t led_num)
+int ui_led_set_rgb(uint8_t red, uint8_t green, uint8_t blue, uint8_t led_num)
 {
 	struct led_effect effect =
 		LED_EFFECT_LED_BREATHE(UI_LED_ON_PERIOD_NORMAL,
