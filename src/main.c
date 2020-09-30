@@ -44,6 +44,7 @@
 #include "watchdog.h"
 #include "ble_conn_mgr.h"
 #include "ble.h"
+#include "config.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(apricity_gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
@@ -629,6 +630,8 @@ void log_fw_info(void)
 	struct fw_info *info = &m_firmware_info;
 
 	if (info) {
+		LOG_INF("HW:%s FW:%s Built:%s", HW_REV_STRING, FW_REV_STRING,
+			BUILT_STRING);
 		LOG_INF("Ver:%u, Size:%u, Start:0x%08x, Boot:0x%08x, Valid:%u",
 			info->version, info->size, info->address,
 			info->boot_address, info->valid);
@@ -654,13 +657,28 @@ void log_modem_info(void)
 				modem_param.device.modem_fw.type,
 				modem_param.device.modem_fw.value);
 		}
+		if (modem_param.device.imei.type == MODEM_INFO_IMEI) {
+			LOG_INF("IMEI: %s",
+				modem_param.device.imei.value_string);
+		}
+		if (modem_param.network.lte_mode.value == 1) {
+			LOG_INF("LTE-M");
+		} else if (modem_param.network.nbiot_mode.value == 1) {
+			LOG_INF("NB-IoT");
+		}
+		if (modem_param.network.current_operator.type ==
+		    MODEM_INFO_OPERATOR) {
+			LOG_INF("Operator: %s",
+			     modem_param.network.current_operator.value_string);
+		}
+		LOG_INF("Cell ID: %ld", (long)modem_param.network.cellid_dec);
 		if (modem_param.network.date_time.value_string) {
 			char *str = modem_param.network.date_time.value_string;
 
 			_timezone = atoi(&str[18]) * 15 * 60;
 			_daylight = atoi(&str[25]);
-			LOG_INF("modem_info.network.date_time: %s "
-				"_daylight %d _timezone %ld",
+			LOG_INF("Network date/time: %s "
+				"DST %d TZ %ld",
 				modem_param.network.date_time.value_string,
 				_daylight, _timezone);
 
@@ -711,7 +729,9 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		}
 		return;
 	} else if (evt->type == CLOUD_EVT_CONNECTED) {
+		LOG_INF("*******************************");
 		log_modem_info();
+		LOG_INF("*******************************");
 		LOG_INF("CLOUD_EVT_CONNECTED");
 		k_delayed_work_cancel(&cloud_reboot_work);
 		k_sem_take(&cloud_disconnected, K_NO_WAIT);
