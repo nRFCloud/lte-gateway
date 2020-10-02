@@ -484,7 +484,7 @@ static void cloud_connect_work_fn(struct k_work *work)
 	ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 
 	/* Attempt cloud connection */
-	ret = cloud_connect(cloud_backend, NULL);
+	ret = cloud_connect(cloud_backend);
 	if (ret != CLOUD_CONNECT_RES_SUCCESS) {
 		k_delayed_work_cancel(&cloud_reboot_work);
 		/* Will not return from this function.
@@ -946,6 +946,7 @@ void main(void)
 	handle_bsdlib_init_ret();
 #endif
 
+	k_sleep(K_SECONDS(5));
 	cloud_api_init();
 
 	work_init();
