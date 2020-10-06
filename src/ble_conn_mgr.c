@@ -36,7 +36,7 @@ static void process_connection(int i)
 	}
 	/* Add devices to whitelist */
 	if (!dev->added_to_whitelist) {
-		ble_add_to_whitelist(dev->addr, dev->addr_type);
+		ble_add_to_whitelist(dev->addr);
 		dev->added_to_whitelist = true;
 		update_shadow(dev->addr, true, false);
 		LOG_INF("Device added to whitelist.");
@@ -54,7 +54,7 @@ static void process_connection(int i)
 	 */
 	if (dev->connected && !dev->discovered && !dev->discovering) {
 
-		err = ble_discover(dev->addr, dev->addr_type);
+		err = ble_discover(dev->addr);
 
 		if (!err) {
 			dev->discovered = true;
@@ -142,10 +142,8 @@ void ble_conn_mgr_update_connections()
 
 			if (dev->disconnect) {
 				LOG_INF("cloud: disconnect device");
-				ble_remove_from_whitelist(dev->addr,
-							  dev->addr_type);
-				disconnect_device_by_addr(dev->addr,
-							  dev->addr_type);
+				ble_remove_from_whitelist(dev->addr);
+				disconnect_device_by_addr(dev->addr);
 				ble_conn_mgr_conn_reset(i);
 				if (IS_ENABLED(CONFIG_SETTINGS)) {
 					LOG_INF("Saving settings");
@@ -243,7 +241,7 @@ int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 	return err;
 }
 
-int ble_conn_mgr_add_conn(char *addr, char *addr_type)
+int ble_conn_mgr_add_conn(char *addr)
 {
 	int err = 0;
 	connected_ble_devices *connected_ble_ptr;
@@ -266,7 +264,6 @@ int ble_conn_mgr_add_conn(char *addr, char *addr_type)
 	}
 
 	memcpy(connected_ble_ptr->addr, addr, DEVICE_ADDR_LEN);
-	memcpy(connected_ble_ptr->addr_type, addr_type, DEVICE_ADDR_TYPE_LEN);
 	connected_ble_ptr->free = false;
 	LOG_INF("Ble conn added to manager");
 	return err;

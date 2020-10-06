@@ -32,16 +32,16 @@ typedef struct ble_scanned_devices {
 struct connected_ble_devices;
 
 void ble_init(void);
-void ble_add_to_whitelist(char *addr_str, char *conn_type);
+void ble_add_to_whitelist(char *addr_str);
 void scan_start(void);
 void ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type);
 void gatt_read(char *ble_addr, char *chrc_uuid);
 void gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data, uint16_t data_len);
-uint8_t ble_discover(char *ble_addr, char *type);
+uint8_t ble_discover(char *ble_addr);
 void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len);
 void bt_to_upper(char *addr, uint8_t addr_len);
-uint8_t disconnect_device_by_addr(char *ble_addr, char *type);
-void ble_remove_from_whitelist(char *addr_str, char *conn_type);
+uint8_t disconnect_device_by_addr(char *ble_addr);
+void ble_remove_from_whitelist(char *addr_str);
 void ble_clear_discover_inprogress();
 int device_discovery_send(struct connected_ble_devices *conn_ptr);
 void update_shadow(char *ble_address, bool connecting, bool connected);

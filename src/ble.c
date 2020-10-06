@@ -791,7 +791,7 @@ static struct bt_gatt_dm_cb discovery_cb = {
 	.error_found = discovery_error_found,
 };
 
-uint8_t ble_discover(char *ble_addr, char *type)
+uint8_t ble_discover(char *ble_addr)
 {
 	int err;
 	struct bt_conn *conn;
@@ -799,10 +799,9 @@ uint8_t ble_discover(char *ble_addr, char *type)
 	connected_ble_devices *connection_ptr;
 
 	LOG_INF("Discover Addr: %s\n", log_strdup(ble_addr));
-	LOG_INF("Discover Type: %s\n", log_strdup(type));
 
 	if (!discover_in_progress) {
-		err = bt_addr_le_from_str(ble_addr, type, &addr);
+		err = bt_addr_le_from_str(ble_addr, "random", &addr);
 		if (err) {
 			LOG_ERR("Address from string failed (err %d)", err);
 			return err;
@@ -844,13 +843,13 @@ uint8_t ble_discover(char *ble_addr, char *type)
 }
 
 
-uint8_t disconnect_device_by_addr(char *ble_addr, char *type)
+uint8_t disconnect_device_by_addr(char *ble_addr)
 {
 	int err;
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
 
-	err = bt_addr_le_from_str(ble_addr, type, &addr);
+	err = bt_addr_le_from_str(ble_addr, "random", &addr);
 	if (err) {
 		LOG_ERR("Address from string failed (err %d)", err);
 		return err;
@@ -938,7 +937,7 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 	} else {
 		LOG_INF("Reconnected: %s", log_strdup(addr));
 	}
-	ble_remove_from_whitelist(addr_trunc, connection_ptr->addr_type);
+	ble_remove_from_whitelist(addr_trunc);
 
 	ui_led_set_pattern(UI_BLE_CONNECTED, PWM_DEV_1);
 
@@ -975,8 +974,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 
 	if (!connection_ptr->free) {
-		ble_add_to_whitelist(connection_ptr->addr,
-				     connection_ptr->addr_type);
+		ble_add_to_whitelist(connection_ptr->addr);
 	}
 
 	ui_led_set_pattern(UI_BLE_DISCONNECTED, PWM_DEV_1);
@@ -1094,15 +1092,14 @@ void scan_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(scan_timer, scan_timer_handler, NULL);
 
-void ble_add_to_whitelist(char *addr_str, char *conn_type)
+void ble_add_to_whitelist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
 	LOG_INF("Whitelisting Address: %s", log_strdup(addr_str));
-	LOG_INF("Whitelisting Address Type: %s", log_strdup(conn_type));
 
-	err = bt_addr_le_from_str(addr_str, conn_type, &addr);
+	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
 		LOG_ERR("Invalid peer address (err %d)", err);
 		return;
@@ -1116,15 +1113,14 @@ void ble_add_to_whitelist(char *addr_str, char *conn_type)
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 }
 
-void ble_remove_from_whitelist(char *addr_str, char *conn_type)
+void ble_remove_from_whitelist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
 	LOG_INF("Removing Whitelist Address: %s", log_strdup(addr_str));
-	LOG_INF("Whitelisting Address Type: %s", log_strdup(conn_type));
 
-	err = bt_addr_le_from_str(addr_str, conn_type, &addr);
+	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
 		LOG_ERR("Invalid peer address (err %d)", err);
 		return;

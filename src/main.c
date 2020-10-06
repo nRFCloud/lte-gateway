@@ -945,7 +945,10 @@ void main(void)
 #else
 	handle_bsdlib_init_ret();
 #endif
-
+	/* delay a bit to allow BLE logging to catch up before
+	 * connecting to cloud -- otherwise it can be hard to follow
+	 * what's happening when debugging
+	 */
 	k_sleep(K_SECONDS(5));
 	cloud_api_init();
 
