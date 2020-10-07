@@ -14,13 +14,13 @@
 /* TODO: need to resolve header issue -- drivers/uart.h is found
  * in modules, not in zephyr as it should be
  */
-extern int uart_fifo_read(struct device *h4, uint8_t *rx_data, const int size);
+extern int uart_fifo_read(const struct device *h4, uint8_t *rx_data, const int size);
 
 int bt_hci_transport_setup(struct device *h4)
 {
 	int err;
 	char c;
-	struct device *port;
+	const struct device *port;
 
 	port = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
 	if (!port) {
