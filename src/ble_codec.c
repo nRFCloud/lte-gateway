@@ -20,7 +20,7 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble_codec, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
-extern ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
+extern struct ble_scanned_dev ble_scanned_devices[MAX_SCAN_RESULTS];
 extern char gateway_id[10];
 
 static char service_buffer[MAX_SERVICE_BUF_SIZE];
@@ -39,7 +39,9 @@ static bool first_chrc = true;
 } while (0)
 
 #define CJADDITEM cJSON_AddItemToObject
+#define CJADDITEMCS cJSON_AddItemToObjectCS
 #define CJADDREF cJSON_AddItemReferenceToObject
+#define CJADDREFCS cJSON_AddItemReferenceToObjectCS
 #define CJPRINT cJSON_PrintPreallocated
 
 #define CJCHK(_a_) do { \
@@ -56,17 +58,23 @@ static bool first_chrc = true;
 
 #define CJADDBOOL(_a_, _b_, _c_) CJCHK( \
 		cJSON_AddBoolToObject((_a_), (_b_), (_c_)))
+#define CJADDBOOLCS(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddBoolToObjectCS((_a_), (_b_), (_c_)))
 
 #define CJADDSTR(_a_, _b_, _c_) CJCHK( \
 		cJSON_AddStringToObject((_a_), (_b_), (_c_)))
+#define CJADDSTRCS(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddStringToObjectCS((_a_), (_b_), (_c_)))
 
 #define CJADDNUM(_a_, _b_, _c_) CJCHK( \
 		cJSON_AddNumberToObject((_a_), (_b_), (_c_)))
+#define CJADDNUMCS(_a_, _b_, _c_) CJCHK( \
+		cJSON_AddNumberToObjectCS((_a_), (_b_), (_c_)))
 
 #define CJADDNULL(_a_, _b_) CJCHK( \
 		cJSON_AddNullToObject((_a_), (_b_)))
-
-#define CJPRINT cJSON_PrintPreallocated
+#define CJADDNULLCS(_a_, _b_) CJCHK( \
+		cJSON_AddNullToObjectCS((_a_), (_b_)))
 
 #define CJADDARROBJ(_a_, _b_) do { \
 	(_b_) = cJSON_CreateObject(); \
@@ -97,7 +105,7 @@ char *get_time_str(char *dst, size_t len)
 		LOG_DBG("Unix time %lld", ts.tv_sec);
 		t = (time_t)ts.tv_sec;
 		tm = *(gmtime(&t));
-		// 2020-02-19T18:38:50.363Z
+		/* 2020-02-19T18:38:50.363Z */
 		strftime(dst, len, "%Y-%m-%dT%H:%M:%S.000Z", &tm);
 		LOG_DBG("Date/time %s", log_strdup(dst));
 	}
@@ -122,23 +130,23 @@ int device_error_encode(char *ble_address, char *error_msg,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDSTR(root_obj, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDSTRCS(root_obj, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(event, "type", "error");
-	CJADDSTR(error, "description", error_msg);
-	CJADDSTR(device, "deviceAddress", ble_address);
+	CJADDSTRCS(event, "type", "error");
+	CJADDSTRCS(error, "description", error_msg);
+	CJADDSTRCS(device, "deviceAddress", ble_address);
 
 	/* use references so deleting is cleaner below; must be last
 	 * operation on any given cJSON object
 	 */
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "error", error);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "error", error);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -163,46 +171,42 @@ int device_found_encode(uint8_t num_devices_found, struct ble_msg *msg)
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "scan_result");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
-	CJADDSTR(event, "subType", "instant");
-	CJADDBOOL(event, "timeout", true);
+	CJADDSTRCS(event, "type", "scan_result");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "subType", "instant");
+	CJADDBOOLCS(event, "timeout", true);
 
 	for (int i = 0; i < num_devices_found; i++) {
-		LOG_INF("Adding device %s RSSI: %d\n",
-		       ble_scanned_device[i].addr, ble_scanned_device[i].rssi);
+		LOG_DBG("Adding device %s RSSI: %d\n",
+			log_strdup(ble_scanned_devices[i].addr),
+			ble_scanned_devices[i].rssi);
 
 		/* TODO: Update for beacons */
 		CJADDARROBJ(devices, device);
-
-		CJADDSTR(device, "deviceType", "BLE");
-		CJADDNUM(device, "rssi", ble_scanned_device[i].rssi);
-		if (strlen(ble_scanned_device[i].name) > 0) {
-			CJADDSTR(device, "name", ble_scanned_device[i].name);
-		} else {
-			CJADDNULL(device, "name");
+		CJADDSTRCS(device, "deviceType", "BLE");
+		CJADDNUMCS(device, "rssi", ble_scanned_devices[i].rssi);
+		if (strlen(ble_scanned_devices[i].name) > 0) {
+			CJADDSTRCS(device, "name", ble_scanned_devices[i].name);
 		}
 
 		CJCREATE(address);
-		CJADDSTR(address, "address", ble_scanned_device[i].addr);
-		CJADDSTR(address, "type", ble_scanned_device[i].type);
-
-		CJADDITEM(device, "address", address);
+		CJADDSTRCS(address, "address", ble_scanned_devices[i].addr);
+		CJADDITEMCS(device, "address", address);
 		address = NULL;
 	}
 
 	/* Figure out a messageId:
-	 * cJSON_AddItemToObject(root_obj, "messageId", cJSON_CreateNumber(1));
+	 * CJADDNUMCS(root_obj, "messageId", 1);
 	 */
-	CJADDREF(event, "devices", devices);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(event, "devices", devices);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -231,24 +235,24 @@ int device_connect_result_encode(char *ble_address, bool conn_status,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_connect_result");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_connect_result");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
-	CJADDBOOL(status, "connected", conn_status);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
+	CJADDBOOLCS(status, "connected", conn_status);
 
-	CJADDREF(device, "address", address);
-	CJADDREF(device, "status", status);
-	CJADDREF(event, "device", device);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(device, "status", status);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -276,24 +280,24 @@ int device_disconnect_result_encode(char *ble_address, bool conn_status,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_disconnect");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_disconnect");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
-	CJADDBOOL(status, "connected", conn_status);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
+	CJADDBOOLCS(status, "connected", conn_status);
 
-	CJADDREF(device, "status", status);
-	CJADDREF(device, "address", address);
-	CJADDREF(event, "device", device);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "status", status);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -323,33 +327,33 @@ int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_characteristic_value_changed");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_characteristic_value_changed");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
 	/* TODO: Get Type; */
-	CJADDSTR(address, "type", "random");
+	CJADDSTRCS(address, "type", "random");
 
-	CJADDSTR(chrc, "uuid", uuid);
-	CJADDSTR(chrc, "path", path);
+	CJADDSTRCS(chrc, "uuid", uuid);
+	CJADDSTRCS(chrc, "path", path);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
-	CJADDREF(device, "address", address);
-	CJADDREF(chrc, "value", value_arr);
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "characteristic", chrc);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(chrc, "value", value_arr);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "characteristic", chrc);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -380,33 +384,33 @@ int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_descriptor_value_write_result");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_descriptor_value_write_result");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
 	/* TODO: Get Type; */
-	CJADDSTR(address, "type", "random");
+	CJADDSTRCS(address, "type", "random");
 
-	CJADDSTR(desc, "uuid", uuid);
-	CJADDSTR(desc, "path", path);
+	CJADDSTRCS(desc, "uuid", uuid);
+	CJADDSTRCS(desc, "path", path);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
-	CJADDREF(device, "address", address);
-	CJADDREF(desc, "value", value_arr);
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "descriptor", desc);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(desc, "value", value_arr);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "descriptor", desc);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -438,33 +442,33 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_descriptor_value_changed");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_descriptor_value_changed");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
 	/* TODO: Get Type; */
-	CJADDSTR(address, "type", "random");
+	CJADDSTRCS(address, "type", "random");
 
-	CJADDSTR(desc, "uuid", uuid);
-	CJADDSTR(desc, "path", path);
+	CJADDSTRCS(desc, "uuid", uuid);
+	CJADDSTRCS(desc, "path", path);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
-	CJADDREF(device, "address", address);
-	CJADDREF(desc, "value", value_arr);
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "descriptor", desc);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(desc, "value", value_arr);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "descriptor", desc);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -495,33 +499,33 @@ int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_characteristic_value_read_result");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_characteristic_value_read_result");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
 	/* TODO: Get Type; */
-	CJADDSTR(address, "type", "random");
+	CJADDSTRCS(address, "type", "random");
 
-	CJADDSTR(chrc, "uuid", uuid);
-	CJADDSTR(chrc, "path", path);
+	CJADDSTRCS(chrc, "uuid", uuid);
+	CJADDSTRCS(chrc, "path", path);
 
 	for (int i = 0; i < value_length; i++) {
 		CJADDARRNUM(value_arr, value[i]);
 	}
 
-	CJADDREF(device, "address", address);
-	CJADDREF(chrc, "value", value_arr);
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "characteristic", chrc);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(chrc, "value", value_arr);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "characteristic", chrc);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", msg->buf);
+	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
 	ret = 0;
 
 cleanup:
@@ -551,22 +555,22 @@ static int create_device_wrapper(char *ble_address, bool conn_status,
 		goto cleanup;
 	}
 
-	CJADDSTR(root_obj, "type", "event");
-	CJADDSTR(root_obj, "gatewayId", gateway_id);
-	CJADDNULL(root_obj, "requestId");
+	CJADDSTRCS(root_obj, "type", "event");
+	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
+	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTR(event, "type", "device_discover_result");
-	CJADDSTR(event, "timestamp", get_time_str(str, sizeof(str)));
+	CJADDSTRCS(event, "type", "device_discover_result");
+	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDSTR(address, "address", ble_address);
-	CJADDBOOL(status, "connected", conn_status);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDSTRCS(address, "address", ble_address);
+	CJADDBOOLCS(status, "connected", conn_status);
 
-	CJADDREF(device, "status", status);
-	CJADDREF(device, "address", address);
-	CJADDREF(event, "device", device);
-	CJADDREF(event, "services", services);
-	CJADDREF(root_obj, "event", event);
+	CJADDREFCS(device, "status", status);
+	CJADDREFCS(device, "address", address);
+	CJADDREFCS(event, "device", device);
+	CJADDREFCS(event, "services", services);
+	CJADDREFCS(root_obj, "event", event);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	msg->buf[strlen(msg->buf) - 3] = 0;
@@ -608,18 +612,18 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 	CJADDARRSTR(fota_arr, "MODEM");
 	CJADDARRSTR(fota_arr, "BOOT");
 
-	CJADDSTR(device, "id", ble_address);
-	CJADDBOOL(status, "connected", connected);
-	CJADDBOOL(status, "connecting", connecting);
+	CJADDSTRCS(device, "id", ble_address);
+	CJADDBOOLCS(status, "connected", connected);
+	CJADDBOOLCS(status, "connecting", connecting);
 
-	CJADDREF(service_info, "fota_v1", fota_arr);
-	CJADDREF(gateway_device, "serviceInfo", service_info);
-	CJADDREF(device, "status", status);
+	CJADDREFCS(service_info, "fota_v1", fota_arr);
+	CJADDREFCS(gateway_device, "serviceInfo", service_info);
+	CJADDREFCS(device, "status", status);
 	CJADDREF(status_connections, ble_address, device);
-	CJADDREF(reported_obj, "device", gateway_device);
-	CJADDREF(reported_obj, "statusConnections", status_connections);
-	CJADDREF(state_obj, "reported", reported_obj);
-	CJADDREF(root_obj, "state", state_obj);
+	CJADDREFCS(reported_obj, "device", gateway_device);
+	CJADDREFCS(reported_obj, "statusConnections", status_connections);
+	CJADDREFCS(state_obj, "reported", reported_obj);
+	CJADDREFCS(root_obj, "state", state_obj);
 
 	CJPRINT(root_obj, msg->buf, msg->len, 0);
 	ret = 0;
@@ -701,7 +705,7 @@ static int device_discover_add_ccc(char *discovered_json,
 }
 
 static int svc_attr_encode(char *uuid, char *path,
-			    connected_ble_devices *ble_conn_ptr,
+			    struct ble_device_conn *ble_conn_ptr,
 			    struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -713,9 +717,9 @@ static int svc_attr_encode(char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADDSTR(service, "uuid", uuid);
+	CJADDSTRCS(service, "uuid", uuid);
 
-	CJADDREF(service, "characteristics", chrcs);
+	CJADDREFCS(service, "characteristics", chrcs);
 	CJADDREF(services, uuid, service);
 
 	/* Print services and add to wrapper */
@@ -731,7 +735,7 @@ cleanup:
 }
 
 static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
-			     connected_ble_devices *ble_conn_ptr,
+			     struct ble_device_conn *ble_conn_ptr,
 			    struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -746,29 +750,29 @@ static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 		goto cleanup;
 	}
 
-	CJADDSTR(chrc, "uuid", uuid);
-	CJADDSTR(chrc, "path", path);
+	CJADDSTRCS(chrc, "uuid", uuid);
+	CJADDSTRCS(chrc, "path", path);
 
 	CJADDARRNUM(value_arr, 0);
 
 	/* Check and add properties */
 	if (properties & BT_GATT_CHRC_READ) {
-		CJADDBOOL(props, "read", true);
+		CJADDBOOLCS(props, "read", true);
 	}
 	if (properties & BT_GATT_CHRC_WRITE) {
-		CJADDBOOL(props, "write", true);
+		CJADDBOOLCS(props, "write", true);
 	}
 	if (properties & BT_GATT_CHRC_INDICATE) {
-		CJADDBOOL(props, "indicate", true);
+		CJADDBOOLCS(props, "indicate", true);
 	}
 	if (properties & BT_GATT_CHRC_NOTIFY) {
-		CJADDBOOL(props, "notify", true);
+		CJADDBOOLCS(props, "notify", true);
 	}
 	if (properties & BT_GATT_CHRC_WRITE_WITHOUT_RESP) {
-		CJADDBOOL(props, "writeWithoutResponse", true);
+		CJADDBOOLCS(props, "writeWithoutResponse", true);
 	}
 	if (properties & BT_GATT_CHRC_AUTH) {
-		CJADDBOOL(props, "authorizedSignedWrite", true);
+		CJADDBOOLCS(props, "authorizedSignedWrite", true);
 	}
 	if ((properties == 0) || ((properties & 
 		~(BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
@@ -780,9 +784,9 @@ static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 		return -EINVAL;
 	}
 
-	CJADDREF(chrc, "properties", props);
-	CJADDREF(chrc, "value", value_arr);
-	CJADDREF(chrc, "descriptors", descriptors);
+	CJADDREFCS(chrc, "properties", props);
+	CJADDREFCS(chrc, "value", value_arr);
+	CJADDREFCS(chrc, "descriptors", descriptors);
 	CJADDREF(parent_chrc, uuid, chrc);
 
 	/* Print parent_chrhc and add to service */
@@ -800,7 +804,7 @@ cleanup:
 }
 
 static int ccc_attr_encode(char *uuid, char *path,
-			   connected_ble_devices *ble_conn_ptr,
+			   struct ble_device_conn *ble_conn_ptr,
 			   struct ble_msg *msg)
 {
 	int ret = -ENOMEM;
@@ -813,12 +817,12 @@ static int ccc_attr_encode(char *uuid, char *path,
 		goto cleanup;
 	}
 
-	CJADDSTR(descriptor, "uuid", uuid);
+	CJADDSTRCS(descriptor, "uuid", uuid);
 	CJADDARRNUM(value_arr, 0);
 	CJADDARRNUM(value_arr, 0);
-	CJADDSTR(descriptor, "path", path);
+	CJADDSTRCS(descriptor, "path", path);
 
-	CJADDREF(descriptor, "value", value_arr);
+	CJADDREFCS(descriptor, "value", value_arr);
 	CJADDREF(parent_ccc, uuid, descriptor);
 
 	/* Print parent_ccc and add to service */
@@ -833,7 +837,7 @@ cleanup:
 }
 
 static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
-		       uint8_t properties, connected_ble_devices *ble_conn_ptr,
+		       uint8_t properties, struct ble_device_conn *ble_conn_ptr,
 		       struct ble_msg *msg)
 {
 	int ret = 0;
@@ -842,18 +846,18 @@ static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
 	bt_to_upper(path, strlen(path));
 
 	if (attr_type ==  BT_ATTR_SERVICE) {
-		LOG_INF("Encoding Service : UUID: %s", log_strdup(uuid_str));
+		LOG_DBG("Encoding Service : UUID: %s", log_strdup(uuid_str));
 		ret = svc_attr_encode(uuid_str, path, ble_conn_ptr, msg);
 
 	} else if (attr_type == BT_ATTR_CHRC) {
-		LOG_INF("Encoding Characteristic : UUID: %s  PATH: %s",
-			log_strdup(uuid_str), path);
+		LOG_DBG("Encoding Characteristic : UUID: %s  PATH: %s",
+			log_strdup(uuid_str), log_strdup(path));
 		ret = chrc_attr_encode(uuid_str, path, properties,
 				       ble_conn_ptr, msg);
 
 	} else if (attr_type == BT_ATTR_CCC) {
-		LOG_INF("Encoding CCC : UUID: %s  PATH: %s",
-			log_strdup(uuid_str), path);
+		LOG_DBG("Encoding CCC : UUID: %s  PATH: %s",
+			log_strdup(uuid_str), log_strdup(path));
 		ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr, msg);
 	} else {
 		LOG_ERR("Unknown Attr Type");
@@ -863,9 +867,8 @@ static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
 	return ret;
 }
 
-static void get_uuid_str(uuid_handle_pairs *uuid_handle, char *str)
+void get_uuid_str(struct uuid_handle_pair *uuid_handle, char *str, size_t len)
 {
-	size_t len = BT_MAX_UUID_LEN;
 	struct bt_uuid *uuid;
 
 	if (uuid_handle->uuid_type == BT_UUID_TYPE_16) {
@@ -879,7 +882,7 @@ static void get_uuid_str(uuid_handle_pairs *uuid_handle, char *str)
 	bt_uuid_get_str(uuid, str, len);
 }
 
-int device_discovery_encode(connected_ble_devices *conn_ptr,
+int device_discovery_encode(struct ble_device_conn *conn_ptr,
 			    struct ble_msg *msg)
 {
 	char uuid_str[BT_MAX_UUID_LEN];
@@ -899,10 +902,10 @@ int device_discovery_encode(connected_ble_devices *conn_ptr,
 	}
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		struct uuid_handle_pairs *uuid_handle;
-		struct uuid_handle_pairs *uh;
+		struct uuid_handle_pair *uuid_handle;
+		struct uuid_handle_pair *uh;
 
-		uuid_handle = &conn_ptr->uuid_handle_pair[i];
+		uuid_handle = &conn_ptr->uuid_handle_pairs[i];
 
 		if ((uuid_handle->uuid_type != BT_UUID_TYPE_16) &&
 		    (uuid_handle->uuid_type != BT_UUID_TYPE_128)) {
@@ -910,14 +913,15 @@ int device_discovery_encode(connected_ble_devices *conn_ptr,
 			ret = -EINVAL;
 			continue;
 		}
-		get_uuid_str(uuid_handle, uuid_str);
+		get_uuid_str(uuid_handle, uuid_str, BT_MAX_UUID_LEN);
 
 		switch (uuid_handle->path_depth) {
 		case 1:
 			for (int j = i; j >= 0; j--) {
-				uh = &conn_ptr->uuid_handle_pair[j];
+				uh = &conn_ptr->uuid_handle_pairs[j];
 				if (uh->is_service == true) {
-					get_uuid_str(uh, service_attr_str);
+					get_uuid_str(uh, service_attr_str,
+						     BT_MAX_UUID_LEN);
 					break;
 				}
 			}
@@ -925,8 +929,8 @@ int device_discovery_encode(connected_ble_devices *conn_ptr,
 				 service_attr_str, uuid_str);
 			break;
 		case 2:
-			uh = &conn_ptr->uuid_handle_pair[i - 1];
-			get_uuid_str(uh, path_dep_two_str);
+			uh = &conn_ptr->uuid_handle_pairs[i - 1];
+			get_uuid_str(uh, path_dep_two_str, BT_MAX_UUID_LEN);
 			snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s",
 				 service_attr_str, path_dep_two_str, uuid_str);
 			break;

@@ -11,7 +11,7 @@ set(BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR})
 set(HW_VERSION_MAJOR "3")
 set(HW_VERSION_MINOR "0")
 set(FW_VERSION_MAJOR "1")
-set(FW_VERSION_MINOR "3.0")
+set(FW_VERSION_MINOR "4.0")
 
 set(spm_CONF_FILE
     ${CMAKE_CURRENT_SOURCE_DIR}/child_secure_partition_manager.conf)
@@ -82,6 +82,7 @@ target_sources(app PRIVATE src/ble.c)
 target_sources(app PRIVATE src/ble_codec.c)
 target_sources(app PRIVATE src/ble_conn_mgr.c)
 target_sources(app PRIVATE src/gateway.c)
+target_sources_ifdef(CONFIG_SHELL app PRIVATE src/cli.c)
 target_sources(app PRIVATE src/dfu/peripheral_dfu.c)
 
 add_subdirectory(src/ui)

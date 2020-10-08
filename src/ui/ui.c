@@ -6,11 +6,12 @@
 
 #include <zephyr.h>
 #include <logging/log.h>
+#include <logging/log_ctrl.h>
 #include <nrf9160.h>
 #include <hal/nrf_gpio.h>
-#include <bsd.h>
-#include <modem/lte_lc.h>
 
+#include "nrf_cloud_transport.h"
+#include "gateway.h"
 #include "ui.h"
 #include "led_pwm.h"
 
@@ -19,8 +20,6 @@ LOG_MODULE_REGISTER(ui, CONFIG_UI_LOG_LEVEL);
 static enum ui_led_pattern current_led_state;
 
 static ui_callback_t callback;
-
-#define CONFIG_MODEM_WAKEUP_PIN 17
 
 bool falling_edge = true;
 bool shutdown = false;
@@ -84,14 +83,7 @@ void power_button_handler(struct ui_evt evt)
 		falling_edge = true;
 
 		if (shutdown) {
-			LOG_INF("Shutting down...");
-			nrf_gpio_cfg_input(CONFIG_MODEM_WAKEUP_PIN,
-					   NRF_GPIO_PIN_PULLUP);
-			nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
-					       NRF_GPIO_PIN_SENSE_LOW);
-			lte_lc_power_off();
-			bsd_shutdown();
-			NRF_REGULATORS_NS->SYSTEMOFF = 1;
+			device_shutdown(false);
 		}
 	}
 }
@@ -190,7 +182,7 @@ int ui_init(ui_callback_t cb)
 #endif /* CONFIG_UI_LED_USE_PWM */
 
 	if (cb) {
-		callback  = cb;
+		callback = cb;
 
 		err = dk_buttons_init(button_handler);
 		if (err) {

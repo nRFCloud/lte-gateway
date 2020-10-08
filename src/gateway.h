@@ -1,6 +1,13 @@
 #ifndef GATEWAY_CLOUD_TRANSPORT__
 #define GATEWAY_CLOUD_TRANSPORT__
 
+struct nct_gw_data;
+
 uint8_t gateway_msg_handler(const struct nct_gw_data *gw_data);
+void device_shutdown(bool reboot);
+void control_cloud_connection(bool enable);
+void cli_init(void);
+bool get_lte_connection_status(void);
+bool get_cloud_connection_status(void);
 
 #endif
