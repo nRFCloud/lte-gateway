@@ -33,8 +33,8 @@ static struct k_delayed_work leds_update_work;
 static void leds_update(struct k_work *work)
 {
 	static bool led_on;
-	static u8_t current_led_on_mask;
-	u8_t led_on_mask;
+	static uint8_t current_led_on_mask;
+	uint8_t led_on_mask;
 
 	led_on_mask = UI_LED_GET_ON(current_led_state);
 	led_on = !led_on;
@@ -97,16 +97,16 @@ void power_button_handler(struct ui_evt evt)
 }
 
 /**@brief Callback for button events from the DK buttons and LEDs library. */
-static void button_handler(u32_t button_states, u32_t has_changed)
+static void button_handler(uint32_t button_states, uint32_t has_changed)
 {
 	struct ui_evt evt;
-	u8_t btn_num;
+	uint8_t btn_num;
 
 	while (has_changed) {
 		btn_num = 0;
 
 		/* Get bit position for next button that changed state. */
-		for (u8_t i = 0; i < 32; i++) {
+		for (uint8_t i = 0; i < 32; i++) {
 			if (has_changed & BIT(i)) {
 				btn_num = i + 1;
 				break;
@@ -127,7 +127,7 @@ static void button_handler(u32_t button_states, u32_t has_changed)
 
 
 
-void ui_led_set_pattern(enum ui_led_pattern state, u8_t led_num)
+void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
 {
 	current_led_state = state;
 #ifdef CONFIG_UI_LED_USE_PWM
@@ -142,7 +142,7 @@ enum ui_led_pattern ui_led_get_pattern(void)
 	return current_led_state;
 }
 
-int ui_led_set_color(u8_t red, u8_t green, u8_t blue, u8_t led_num)
+int ui_led_set_color(uint8_t red, uint8_t green, uint8_t blue, uint8_t led_num)
 {
 #ifdef CONFIG_UI_LED_USE_PWM
 	return ui_led_set_rgb(red, green, blue, led_num);
@@ -151,7 +151,7 @@ int ui_led_set_color(u8_t red, u8_t green, u8_t blue, u8_t led_num)
 #endif /* CONFIG_UI_LED_USE_PWM */
 }
 
-void ui_led_set_state(u32_t led, u8_t value)
+void ui_led_set_state(uint32_t led, uint8_t value)
 {
 #if !defined(CONFIG_UI_LED_USE_PWM)
 	if (value) {
@@ -203,7 +203,7 @@ int ui_init(ui_callback_t cb)
 	return err;
 }
 
-bool ui_button_is_active(u32_t button)
+bool ui_button_is_active(uint32_t button)
 {
 #if defined(CONFIG_DK_LIBRARY)
 	return dk_get_buttons() & BIT((button - 1));

@@ -66,7 +66,7 @@ static void process_connection(int i)
 		/* I don't know why this is needed in a work thread.
 		 * TODO: FIX
 		 */
-		u32_t lock = irq_lock();
+		uint32_t lock = irq_lock();
 
 		dev->encode_discovered = false;
 		device_discovery_send(&connected_ble_device[i]);
@@ -108,7 +108,7 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 		CONN_MGR_PRIORITY, 0, 0);
 
 
-static void ble_conn_mgr_conn_reset(u8_t conn)
+static void ble_conn_mgr_conn_reset(uint8_t conn)
 {
 	connected_ble_device[conn].free = true;
 	connected_ble_device[conn].added_to_whitelist = false;
@@ -157,7 +157,7 @@ void ble_conn_mgr_update_connections()
 }
 
 
-void ble_conn_mgr_update_desired(char *addr, u8_t index)
+void ble_conn_mgr_update_desired(char *addr, uint8_t index)
 {
 	if (index <= CONFIG_BT_MAX_CONN) {
 		memcpy(desired_connection[index].addr, addr, strlen(addr));
@@ -177,7 +177,7 @@ void ble_conn_mgr_clear_desired()
 	}
 }
 
-int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
+int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 				char *path, bool ccc)
 {
 	int err = 0;
@@ -185,7 +185,7 @@ int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, u16_t handle,
 	char service_uuid[BT_UUID_STR_LEN];
 	char ccc_uuid[BT_UUID_STR_LEN];
 	char chrc_uuid[BT_UUID_STR_LEN];
-	u8_t path_depth = 0;
+	uint8_t path_depth = 0;
 	bool found = false;
 
 	path_str[0] = '\0';
@@ -385,7 +385,7 @@ int ble_conn_mgr_get_conn_by_addr(char *addr, connected_ble_devices **conn_ptr)
 
 }
 
-int ble_conn_mgr_set_subscribed(u16_t handle, u8_t sub_index,
+int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 				 connected_ble_devices *conn_ptr)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
@@ -400,7 +400,7 @@ int ble_conn_mgr_set_subscribed(u16_t handle, u8_t sub_index,
 }
 
 
-int ble_conn_mgr_remove_subscribed(u16_t handle,
+int ble_conn_mgr_remove_subscribed(uint16_t handle,
 				    connected_ble_devices *conn_ptr)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
@@ -413,8 +413,8 @@ int ble_conn_mgr_remove_subscribed(u16_t handle,
 }
 
 
-int ble_conn_mgr_get_subscribed(u16_t handle, connected_ble_devices *conn_ptr,
-				 bool *status, u8_t *sub_index)
+int ble_conn_mgr_get_subscribed(uint16_t handle, connected_ble_devices *conn_ptr,
+				 bool *status, uint8_t *sub_index)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
 		if (handle == conn_ptr->uuid_handle_pair[i].handle) {
@@ -427,7 +427,7 @@ int ble_conn_mgr_get_subscribed(u16_t handle, connected_ble_devices *conn_ptr,
 	return 1;
 }
 
-int ble_conn_mgr_get_uuid_by_handle(u16_t handle, char *uuid,
+int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
 				     connected_ble_devices *conn_ptr)
 {
 	char uuid_str[BT_UUID_STR_LEN];
@@ -454,7 +454,7 @@ int ble_conn_mgr_get_uuid_by_handle(u16_t handle, char *uuid,
 }
 
 
-int ble_conn_mgr_get_handle_by_uuid(u16_t *handle, char *uuid,
+int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 				     connected_ble_devices *conn_ptr)
 {
 	char str[BT_UUID_STR_LEN];
@@ -490,9 +490,9 @@ int ble_conn_mgr_get_handle_by_uuid(u16_t *handle, char *uuid,
 	return 1;
 }
 
-int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, u16_t handle,
-				u8_t path_depth, u8_t properties,
-				u8_t attr_type,
+int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
+				uint8_t path_depth, uint8_t properties,
+				uint8_t attr_type,
 				connected_ble_devices *conn_ptr,
 				bool is_service)
 {

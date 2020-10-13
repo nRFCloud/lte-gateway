@@ -14,7 +14,7 @@
 /* TODO: need to resolve header issue -- drivers/uart.h is found
  * in modules, not in zephyr as it should be
  */
-extern int uart_fifo_read(struct device *h4, u8_t *rx_data, const int size);
+extern int uart_fifo_read(struct device *h4, uint8_t *rx_data, const int size);
 
 int bt_hci_transport_setup(struct device *h4)
 {

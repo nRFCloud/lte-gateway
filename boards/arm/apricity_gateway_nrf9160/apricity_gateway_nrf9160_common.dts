@@ -18,7 +18,7 @@
 		compatible = "gpio-keys";
 
 		button0: button_0 {
-			gpios = <&gpio0 17 GPIO_PUD_PULL_UP>;
+			gpios = <&gpio0 17 GPIO_PULL_UP>;
 			label = "Button 1";
 		};
 	};
@@ -144,6 +144,7 @@
 	compatible = "nordic,nrf-uarte";
 	current-speed = <1000000>;
 	status = "okay";
+	hw-flow-control;
 	tx-pin = <23>;
 	rx-pin = <22>;
 	rts-pin = <25>;

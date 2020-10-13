@@ -108,8 +108,8 @@ defined(CONFIG_NRF_CLOUD_PROVISION_CERTIFICATES)
 #endif
 
 struct rsrp_data {
-	u16_t value;
-	u16_t offset;
+	uint16_t value;
+	uint16_t offset;
 };
 
 /* Stack definition for application workqueue */
@@ -304,7 +304,7 @@ void error_handler(enum error_type err_type, int err_code)
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
 		 */
-		ui_led_set_pattern(UI_LED_ERROR_BSD_REC, PWM_DEV0);
+		ui_led_set_pattern(UI_LED_ERROR_BSD_REC, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_BSD_RECOVERABLE: %d", err_code);
 		break;
 	default:
@@ -418,7 +418,7 @@ void bsd_recoverable_error_handler(uint32_t err)
 	error_handler(ERROR_BSD_RECOVERABLE, (int)err);
 }
 
-void connect_to_cloud(const s32_t connect_delay_s)
+void connect_to_cloud(const int32_t connect_delay_s)
 {
 	static bool initial_connect = true;
 
@@ -530,7 +530,7 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 
 static void cycle_cloud_connection(struct k_work *work)
 {
-	s32_t reboot_wait_ms = REBOOT_AFTER_DISCONNECT_WAIT_MS;
+	int32_t reboot_wait_ms = REBOOT_AFTER_DISCONNECT_WAIT_MS;
 
 	LOG_INF("Disconnecting from cloud...");
 
@@ -741,7 +741,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 			evt->data.persistent_session);
 
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
-		s32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
+		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
 
 		LOG_INF("CLOUD_EVT_DISCONNECTED: %d", evt->data.err);
 		ui_led_set_pattern(UI_LTE_CONNECTED, PWM_DEV_0);

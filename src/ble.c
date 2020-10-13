@@ -6,11 +6,14 @@
 
 #include <zephyr.h>
 #include <stdio.h>
+#include <strings.h>
 
+#include <bluetooth/bluetooth.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt_dm.h>
 #include <bluetooth/scan.h>
+#include <bluetooth/hci.h>
 #include <dk_buttons_and_leds.h>
 #include <settings/settings.h>
 
@@ -62,8 +65,8 @@ ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 static struct bt_gatt_subscribe_params sub_param[BT_MAX_SUBSCRIBES];
 /* Array of connections corresponding to subscriptions above */
 static struct bt_conn *sub_conn[BT_MAX_SUBSCRIBES];
-static u16_t sub_value[BT_MAX_SUBSCRIBES];
-static u8_t curr_subs;
+static uint16_t sub_value[BT_MAX_SUBSCRIBES];
+static uint8_t curr_subs;
 struct rec_data_t {
 	void *fifo_reserved;
 	struct bt_gatt_subscribe_params sub_params;
@@ -71,13 +74,13 @@ struct rec_data_t {
 	char addr_trunc[BT_ADDR_STR_LEN];
 	char data[256];
 	bool read;
-	u8_t length;
+	uint8_t length;
 };
 
 K_FIFO_DEFINE(rec_fifo);
 
 /* Convert ble address string to uppcase */
-void bt_to_upper(char *addr, u8_t addr_len)
+void bt_to_upper(char *addr, uint8_t addr_len)
 {
 	for (int i = 0; i < addr_len; i++) {
 		addr[i] = toupper(addr[i]);
@@ -87,8 +90,8 @@ void bt_to_upper(char *addr, u8_t addr_len)
 /* Get uuid string from bt_uuid object */
 void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len)
 {
-	u32_t tmp1, tmp5;
-	u16_t tmp0, tmp2, tmp3, tmp4;
+	uint32_t tmp1, tmp5;
+	uint16_t tmp0, tmp2, tmp3, tmp4;
 
 	switch (uuid->type) {
 	case BT_UUID_TYPE_16:
@@ -115,7 +118,7 @@ void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len)
 }
 
 static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service,
-			      u16_t handle, connected_ble_devices *ble_conn_ptr)
+			      uint16_t handle, connected_ble_devices *ble_conn_ptr)
 {
 	char str[UUID_STR_LEN];
 
@@ -130,14 +133,14 @@ static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service,
 static void chrc_attr_data_add(const struct bt_gatt_chrc *gatt_chrc,
 			       connected_ble_devices *ble_conn_ptr)
 {
-	u16_t handle = gatt_chrc->value_handle;
+	uint16_t handle = gatt_chrc->value_handle;
 
 	ble_conn_mgr_add_uuid_pair(gatt_chrc->uuid, handle, 1,
 				   gatt_chrc->properties, BT_ATTR_CHRC,
 				   ble_conn_ptr, false);
 }
 
-static void ccc_attr_data_add(const struct bt_uuid *uuid, u16_t handle,
+static void ccc_attr_data_add(const struct bt_uuid *uuid, uint16_t handle,
 			      connected_ble_devices *ble_conn_ptr)
 {
 	LOG_DBG("\tHandle: %d", handle);
@@ -370,9 +373,9 @@ static void discovery_error_found(struct bt_conn *conn, int err, void *ctx)
 	}
 }
 
-static u8_t gatt_read_callback(struct bt_conn *conn, u8_t err,
+static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 	struct bt_gatt_read_params *params,
-	const void *data, u16_t length)
+	const void *data, uint16_t length)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	char addr_trunc[BT_ADDR_STR_LEN];
@@ -424,7 +427,7 @@ void gatt_read(char *ble_addr, char *chrc_uuid)
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
 	connected_ble_devices *connected_ptr;
-	u16_t handle;
+	uint16_t handle;
 
 	ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
 
@@ -456,11 +459,11 @@ void gatt_read(char *ble_addr, char *chrc_uuid)
 	bt_conn_unref(conn);
 }
 
-static void on_sent(struct bt_conn *conn, u8_t err,
+static void on_sent(struct bt_conn *conn, uint8_t err,
 	struct bt_gatt_write_params *params)
 {
 	const void *data;
-	u16_t length;
+	uint16_t length;
 
 	/* Make a copy of volatile data that is required by the callback. */
 	data = params->data;
@@ -469,13 +472,13 @@ static void on_sent(struct bt_conn *conn, u8_t err,
 	LOG_DBG("Sent Data of Length: %d", length);
 }
 
-void gatt_write(char *ble_addr, char *chrc_uuid, u8_t *data, u16_t data_len)
+void gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data, uint16_t data_len)
 {
 	int err;
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
 	connected_ble_devices *connected_ptr;
-	u16_t handle;
+	uint16_t handle;
 	static struct bt_gatt_write_params params;
 
 	ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
@@ -514,9 +517,9 @@ void gatt_write(char *ble_addr, char *chrc_uuid, u8_t *data, u16_t data_len)
 /*  bt_gatt_write_without_response(conn, handle, data, data_len, false); */
 }
 
-static u8_t on_received(struct bt_conn *conn,
+static uint8_t on_received(struct bt_conn *conn,
 	struct bt_gatt_subscribe_params *params,
-	const void *data, u16_t length)
+	const void *data, uint16_t length)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	char addr_trunc[BT_ADDR_STR_LEN];
@@ -526,7 +529,7 @@ static u8_t on_received(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-	u32_t lock = irq_lock();
+	uint32_t lock = irq_lock();
 
 	if ((length > 0) && (data != NULL)) {
 
@@ -555,7 +558,7 @@ static u8_t on_received(struct bt_conn *conn,
 
 			LOG_INF("Dropping oldest message");
 			if (rx_data != NULL) {
-				u16_t h;
+				uint16_t h;
 
 				if (rx_data->read) {
 					h = rx_data->read_params.single.handle;
@@ -591,7 +594,7 @@ static u8_t on_received(struct bt_conn *conn,
 }
 
 
-void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
+void ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 {
 	int err;
 	static int index;
@@ -599,9 +602,9 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
 	connected_ble_devices *connected_ptr;
-	u16_t handle;
+	uint16_t handle;
 	bool subscribed;
-	u8_t param_index;
+	uint8_t param_index;
 
 	ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
 
@@ -635,7 +638,7 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		bt_gatt_unsubscribe(conn, &sub_param[param_index]);
 		ble_conn_mgr_remove_subscribed(handle, connected_ptr);
 
-		u8_t value[2] = {0, 0};
+		uint8_t value[2] = {0, 0};
 
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
 						       value, sizeof(value),
@@ -655,7 +658,7 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 		LOG_INF("Unsubscribe: Addr %s Handle %d idx %d",
 			log_strdup(ble_addr), handle, param_index);
 	} else if (subscribed && (value_type != 0)) {
-		u8_t value[2] = {
+		uint8_t value[2] = {
 			value_type,
 			0
 		};
@@ -688,7 +691,7 @@ void ble_subscribe(char *ble_addr, char *chrc_uuid, u8_t value_type)
 			goto end;
 		}
 
-		u8_t value[2] = {
+		uint8_t value[2] = {
 			value_type,
 			0
 		};
@@ -732,7 +735,7 @@ end:
 
 int ble_subscribe_device(struct bt_conn *conn, bool subscribe)
 {
-	u16_t handle;
+	uint16_t handle;
 	int i;
 	int count = 0;
 	connected_ble_devices *connected_ptr;
@@ -788,7 +791,7 @@ static struct bt_gatt_dm_cb discovery_cb = {
 	.error_found = discovery_error_found,
 };
 
-u8_t ble_discover(char *ble_addr, char *type)
+uint8_t ble_discover(char *ble_addr, char *type)
 {
 	int err;
 	struct bt_conn *conn;
@@ -841,7 +844,7 @@ u8_t ble_discover(char *ble_addr, char *type)
 }
 
 
-u8_t disconnect_device_by_addr(char *ble_addr, char *type)
+uint8_t disconnect_device_by_addr(char *ble_addr, char *type)
 {
 	int err;
 	struct bt_conn *conn;
@@ -903,7 +906,7 @@ void auto_conn_start_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(auto_conn_start_timer, auto_conn_start_timer_handler, NULL);
 
-static void connected(struct bt_conn *conn, u8_t conn_err)
+static void connected(struct bt_conn *conn, uint8_t conn_err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	char addr_trunc[BT_ADDR_STR_LEN];
@@ -943,7 +946,7 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	char addr_trunc[BT_ADDR_STR_LEN];
@@ -987,30 +990,16 @@ static struct bt_conn_cb conn_callbacks = {
 	.disconnected = disconnected,
 };
 
-void scan_filter_match(struct bt_scan_device_info *device_info,
-	struct bt_scan_filter_match *filter_match,
-	bool connectable)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(device_info->addr, addr, sizeof(addr));
-
-	LOG_INF("Device found: %s", log_strdup(addr));
-}
-
-void scan_connecting_error(struct bt_scan_device_info *device_info)
-{
-	LOG_ERR("Connection to peer failed!");
-}
-
 static bool data_cb(struct bt_data *data, void *user_data)
 {
 	char *name = user_data;
+	int len = MIN(data->data_len, NAME_LEN - 1);
 
 	switch (data->type) {
 	case BT_DATA_NAME_SHORTENED:
 	case BT_DATA_NAME_COMPLETE:
-		memcpy(name, data->data, MIN(data->data_len, NAME_LEN - 1));
+		memcpy(name, data->data, len);
+		name[len] = '\0';
 		return false;
 	default:
 		return true;
@@ -1019,21 +1008,24 @@ static bool data_cb(struct bt_data *data, void *user_data)
 
 void ble_device_found_enc_handler(struct k_work *work)
 {
+	LOG_DBG("Encoding scan...");
 	device_found_encode(num_devices_found, &output);
+	LOG_DBG("Sending scan...");
 	g2c_send(output.buf);
 }
 
 K_WORK_DEFINE(ble_device_encode_work, ble_device_found_enc_handler);
 
-static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
+static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	struct net_buf_simple *ad)
 {
 	char addr_str[BT_ADDR_LE_STR_LEN];
-	char name[NAME_LEN] = { 0 };
-	bool dup_addr = false;
+	char name[NAME_LEN];
+	ble_scanned_devices *scanned = &ble_scanned_device[num_devices_found];
 
-	(void)memset(name, 0, sizeof(name));
-	bt_data_parse(ad, data_cb, name);
+	if (num_devices_found >= MAX_SCAN_RESULTS) {
+		return;
+	}
 
 	/* We're only interested in connectable events */
 	if (type != BT_HCI_ADV_IND && type != BT_HCI_ADV_DIRECT_IND) {
@@ -1042,41 +1034,42 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
 
 	bt_addr_le_to_str(addr, addr_str, sizeof(addr_str));
 
-	memcpy(ble_scanned_device[num_devices_found].type,
-	       addr_str + BT_ADDR_LE_DEVICE_LEN_SHIFT, BT_ADDR_LE_TYPE_LEN);
-	ble_scanned_device[num_devices_found].type[BT_ADDR_LE_TYPE_LEN] = 0;
-
-	bt_to_upper(addr_str, BT_ADDR_LE_STR_LEN);
-
-	memcpy(ble_scanned_device[num_devices_found].addr, addr_str,
-	       BT_ADDR_LE_DEVICE_LEN);
-	ble_scanned_device[num_devices_found].addr[BT_ADDR_LE_DEVICE_LEN] = 0;
-	ble_scanned_device[num_devices_found].rssi = (int)rssi;
-	memcpy(ble_scanned_device[num_devices_found].name, name, strlen(name));
-
 	/* Check for duplicate addresses */
 	for (int j = 0; j < num_devices_found; j++) {
-		if (!(strcmp(ble_scanned_device[num_devices_found].addr,
-			     ble_scanned_device[j].addr))) {
-			dup_addr = true;
+		if (!(strncasecmp(addr_str,
+				  ble_scanned_device[j].addr,
+				  BT_ADDR_LE_DEVICE_LEN))) {
+			return; /* no need to continue; we saw this */ 
 		}
 	}
 
-	if ((num_devices_found < MAX_SCAN_RESULTS) && (dup_addr == false)) {
-		LOG_INF("Device found: %s (RSSI %d)",
-			ble_scanned_device[num_devices_found].addr, rssi);
-		LOG_INF("Device Name: %s",
-			ble_scanned_device[num_devices_found].name);
-		LOG_INF("Type: %s",
-			ble_scanned_device[num_devices_found].type);
+	memcpy(scanned->type,
+	       addr_str + BT_ADDR_LE_DEVICE_LEN_SHIFT, BT_ADDR_LE_TYPE_LEN);
+	scanned->type[BT_ADDR_LE_TYPE_LEN] = 0;
 
-		num_devices_found++;
-	}
+	bt_to_upper(addr_str, BT_ADDR_LE_STR_LEN);
+	memcpy(scanned->addr, addr_str,
+	       BT_ADDR_LE_DEVICE_LEN);
+	scanned->addr[BT_ADDR_LE_DEVICE_LEN] = 0;
+
+	memset(name, 0, sizeof(name));
+	bt_data_parse(ad, data_cb, name);
+	strcpy(scanned->name, name);
+
+	scanned->rssi = (int)rssi;
+
+	LOG_INF("Device found: %s (RSSI %d)", scanned->addr, rssi);
+	LOG_INF("Device Name: %s", scanned->name);
+	LOG_INF("Type: %s", scanned->type);
+
+	num_devices_found++;
 }
 
 void scan_off_handler(struct k_work *work)
 {
 	int err;
+
+	LOG_INF("Stopping scan...");
 
 	err = bt_le_scan_stop();
 	if (err) {
@@ -1088,6 +1081,7 @@ void scan_off_handler(struct k_work *work)
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 
+	LOG_DBG("Submitting scan...");
 	k_work_submit(&ble_device_encode_work);
 }
 
@@ -1172,10 +1166,10 @@ void scan_start(void)
 	memset(ble_scanned_device, 0, sizeof(ble_scanned_device));
 
 	struct bt_le_scan_param param = {
-		.type       = BT_HCI_LE_SCAN_ACTIVE,
-		.filter_dup = BT_HCI_LE_SCAN_FILTER_DUP_ENABLE,
-		.interval   = BT_GAP_SCAN_FAST_INTERVAL,
-		.window     = BT_GAP_SCAN_FAST_WINDOW
+		.type     = BT_LE_SCAN_TYPE_ACTIVE,
+		.options  = BT_LE_SCAN_OPT_FILTER_DUPLICATE,
+		.interval = 0x0010,
+		.window   = 0x0010,
 	};
 
 	if (!discover_in_progress) {
@@ -1190,7 +1184,7 @@ void scan_start(void)
 			LOG_INF("Bluetooth active scan enabled");
 
 			/* TODO: Get scan timeout from scan message */
-			k_timer_start(&scan_timer, K_SECONDS(5), K_SECONDS(0));
+			k_timer_start(&scan_timer, K_SECONDS(10), K_SECONDS(0));
 		}
 
 		scan_waiting = false;
