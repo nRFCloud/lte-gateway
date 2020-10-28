@@ -916,11 +916,11 @@ static void log_uart_pins(void)
 
 void main(void)
 {
-	LOG_INF("*******************************");
-	LOG_INF("Apricity Gateway Starting Up...");
+	LOG_INF("********************************");
+	LOG_INF("nRF Cloud Gateway Starting Up...");
 	log_fw_info();
 	log_uart_pins();
-	LOG_INF("*******************************");
+	LOG_INF("********************************");
 
 #if defined(CONFIG_USE_UI_MODULE)
 	ui_init(power_button_handler);
