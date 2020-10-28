@@ -33,7 +33,7 @@
 #define MAX_BUF_SIZE 11000
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ble, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+LOG_MODULE_REGISTER(ble, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 static char buffer[MAX_BUF_SIZE];
 static struct ble_msg output = {
