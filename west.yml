@@ -10,7 +10,7 @@ manifest:
     - name: sdk-nrf
       path: nrf
       remote: origin
-      revision: feature-gw-ncs-1.4.0-changes
+      revision: feature-dev-debug-rebase
       import: true
   self:
     path: lte-gateway

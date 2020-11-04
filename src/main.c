@@ -47,7 +47,7 @@
 #include "config.h"
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(apricity_gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+LOG_MODULE_REGISTER(nrf_cloud_gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 #define CALIBRATION_PRESS_DURATION  K_SECONDS(5)
 #define CLOUD_CONNACK_WAIT_DURATION (CONFIG_CLOUD_WAIT_DURATION * MSEC_PER_SEC)
@@ -484,7 +484,7 @@ static void cloud_connect_work_fn(struct k_work *work)
 	ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 
 	/* Attempt cloud connection */
-	ret = cloud_connect(cloud_backend, NULL);
+	ret = cloud_connect(cloud_backend);
 	if (ret != CLOUD_CONNECT_RES_SUCCESS) {
 		k_delayed_work_cancel(&cloud_reboot_work);
 		/* Will not return from this function.
@@ -916,11 +916,11 @@ static void log_uart_pins(void)
 
 void main(void)
 {
-	LOG_INF("*******************************");
-	LOG_INF("Apricity Gateway Starting Up...");
+	LOG_INF("********************************");
+	LOG_INF("nRF Cloud Gateway Starting Up...");
 	log_fw_info();
 	log_uart_pins();
-	LOG_INF("*******************************");
+	LOG_INF("********************************");
 
 #if defined(CONFIG_USE_UI_MODULE)
 	ui_init(power_button_handler);
@@ -945,7 +945,11 @@ void main(void)
 #else
 	handle_bsdlib_init_ret();
 #endif
-
+	/* delay a bit to allow BLE logging to catch up before
+	 * connecting to cloud -- otherwise it can be hard to follow
+	 * what's happening when debugging
+	 */
+	k_sleep(K_SECONDS(5));
 	cloud_api_init();
 
 	work_init();

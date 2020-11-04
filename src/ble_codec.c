@@ -18,7 +18,7 @@
 #define MAX_SERVICE_BUF_SIZE 300
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ble_codec, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+LOG_MODULE_REGISTER(ble_codec, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 extern ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 extern char gateway_id[10];

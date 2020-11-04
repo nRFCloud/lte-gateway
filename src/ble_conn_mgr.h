@@ -6,7 +6,6 @@
 
 #define MAX_UUID_PAIRS 100
 #define DEVICE_ADDR_LEN 18
-#define DEVICE_ADDR_TYPE_LEN 7
 
 #define BT_MAX_UUID_LEN 37
 #define BT_MAX_PATH_LEN 111
@@ -28,7 +27,6 @@ typedef struct uuid_handle_pairs {
 
 typedef struct connected_ble_devices {
 	char addr[DEVICE_ADDR_LEN];
-	char addr_type[DEVICE_ADDR_TYPE_LEN];
 	uuid_handle_pairs uuid_handle_pair[MAX_UUID_PAIRS];
 	uint8_t num_pairs;
 	bool connected;
@@ -41,7 +39,7 @@ typedef struct connected_ble_devices {
 	bool disconnect;
 } connected_ble_devices;
 
-int ble_conn_mgr_add_conn(char *addr, char *addr_type);
+int ble_conn_mgr_add_conn(char *addr);
 int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 				char *path, bool ccc);
 int ble_conn_mgr_remove_conn(char *addr);
