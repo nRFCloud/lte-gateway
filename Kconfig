@@ -168,6 +168,76 @@ config SPM_NRF_REGULATORS_NS
 	bool "Regulators is Non-Secure"
 	default y
 
+config MODEM_WAKEUP_PIN
+	int "modem wakeup pin"
+	default 17
+       help
+         Change the pin that wakes up the modem.
+
+config SHELL_PROMPT_SECURE
+	string "Displayed prompt name"
+	default "uart:~# "
+	help
+	  Displayed prompt name for UART backend once user has logged in.
+
+config GATEWAY_DBG_CMDS
+	bool "Enable debugging commands"
+       default y
+       select CPU_LOAD
+	select CPU_LOAD_CMDS
+       select KERNEL_SHELL
+
+config GATEWAY_SHELL
+	bool "Enable shell for administering nRF Cloud gateway"
+       default y
+       select SHELL
+       select SHELL_CMDS
+       select SHELL_HISTORY
+       select SHELL_METAKEYS
+       select SHELL_LOG_BACKEND
+       select SHELL_VT100_COLORS
+       select SHELL_BACKEND_SERIAL
+
+config STARTING_LOG_OVERRIDE
+	bool "Different logging level at boot"
+       default n
+       help
+         All configured logging will occur if disabled. Otherwise,
+         logging changed to STARTING_LOG_LEVEL until user logs in and
+	  manually enables with 'log enable inf' (or whatever level is
+	  desired).
+
+choice
+	prompt "Max compiled-in log level to boot with"
+	default STARTING_LOG_LEVEL_INF
+	depends on LOG
+
+config STARTING_LOG_LEVEL_OFF
+	bool "Off"
+
+config STARTING_LOG_LEVEL_ERR
+	bool "Error"
+
+config STARTING_LOG_LEVEL_WRN
+	bool "Warning"
+
+config STARTING_LOG_LEVEL_INF
+	bool "Info"
+
+config STARTING_LOG_LEVEL_DBG
+	bool "Debug"
+
+endchoice
+
+config STARTING_LOG_LEVEL
+	int
+	depends on LOG
+	default 0 if STARTING_LOG_LEVEL_OFF
+	default 1 if STARTING_LOG_LEVEL_ERR
+	default 2 if STARTING_LOG_LEVEL_WRN
+	default 3 if STARTING_LOG_LEVEL_INF
+	default 4 if STARTING_LOG_LEVEL_DBG
+
 endmenu
 
 menu "Zephyr Kernel"

@@ -20,7 +20,7 @@ int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 			    struct ble_msg *msg);
 int device_discovery_add_attr(char *discovered_json, bool last_attr,
 			      struct ble_msg *msg);
-int device_discovery_encode(connected_ble_devices *conn_ptr,
+int device_discovery_encode(struct ble_device_conn *conn_ptr,
 			    struct ble_msg *msg);
 int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 				     char *value, uint16_t value_length,
@@ -35,4 +35,6 @@ int device_disconnect_result_encode(char *ble_address, bool conn_status,
 				    struct ble_msg *msg);
 int device_shadow_data_encode(char *ble_address, bool connecting,
 			      bool connected, struct ble_msg *msg);
+void get_uuid_str(struct uuid_handle_pair *uuid_handle, char *str, size_t len);
+
 #endif

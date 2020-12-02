@@ -1,24 +1,29 @@
-#include "nrf_cloud_codec.h"
-#include "gateway.h"
-#include "nrf_cloud_transport.h"
-#include "nrf_cloud_mem.h"
-
 #include <zephyr.h>
 #include <stdio.h>
 #include <net/mqtt.h>
 #include <net/socket.h>
 #include <bluetooth/gatt.h>
+#include <power/reboot.h>
+#include <bsd.h>
+#include <logging/log.h>
+#include <logging/log_ctrl.h>
+#include <modem/lte_lc.h>
+#include <nrf9160.h>
+#include <hal/nrf_gpio.h>
+#include <net/cloud.h>
+
+#include "nrf_cloud_codec.h"
+#include "gateway.h"
+#include "nrf_cloud_transport.h"
+#include "nrf_cloud_mem.h"
 
 #include "cJSON.h"
 #include "cJSON_os.h"
 #include "ble.h"
 #include "bluetooth/bluetooth.h"
 #include "ble_codec.h"
-#include <power/reboot.h>
-#include <power/reboot.h>
 #include "ble_conn_mgr.h"
 
-#include <logging/log.h>
 LOG_MODULE_REGISTER(gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 #define CLOUD_PROC_STACK_SIZE 2048
@@ -300,6 +305,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		ble_address = json_object_decode(operation_obj,
 						 "deviceAddress");
 		if (ble_address != NULL) {
+			LOG_INF("cloud requested device_discover");
 			ble_conn_mgr_rediscover(ble_address->valuestring);
 		}
 	}
@@ -308,3 +314,52 @@ exit_handler:
 	cJSON_Delete(root_obj);
 	return ret;
 }
+
+void device_shutdown(bool reboot)
+{
+	struct cloud_backend *backend;
+	int err;
+
+	LOG_PANIC();
+	if (!reboot) {
+		LOG_INF("Shutting down...");
+		nrf_gpio_cfg_input(CONFIG_MODEM_WAKEUP_PIN,
+				   NRF_GPIO_PIN_PULLUP);
+		nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
+				       NRF_GPIO_PIN_SENSE_LOW);
+	}
+
+	LOG_INF("Disconnect from cloud...");
+	backend = cloud_get_binding("NRF_CLOUD");
+	err = cloud_disconnect(backend);
+	if (err) {
+		LOG_ERR("Error closing cloud backend: %d",
+			err);
+	}
+
+	LOG_INF("Power off LTE...");
+	err = lte_lc_power_off();
+	if (err) {
+		LOG_ERR("Error powering off LTE: %d",
+			err);
+	}
+
+	LOG_INF("Shutdown bsdlib...");
+	err = bsd_shutdown();
+	if (err) {
+		LOG_ERR("Error on bsd_shutdown(): %d",
+			err);
+	}
+
+	if (reboot) {
+		LOG_INF("Rebooting...");
+		k_sleep(K_SECONDS(1));
+
+		sys_reboot(SYS_REBOOT_COLD);
+	} else {
+		LOG_INF("Power down.");
+		k_sleep(K_SECONDS(1));
+		NRF_REGULATORS_NS->SYSTEMOFF = 1;
+	}
+}
+

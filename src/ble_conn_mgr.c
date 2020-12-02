@@ -13,14 +13,9 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble_conn_mgr, CONFIG_LOG_DEFAULT_LEVEL);
 
-static connected_ble_devices connected_ble_device[CONFIG_BT_MAX_CONN];
+static struct ble_device_conn connected_ble_devices[CONFIG_BT_MAX_CONN];
 
-typedef struct {
-	char addr[DEVICE_ADDR_LEN];
-	bool active;
-} desired_conns;
-
-static desired_conns desired_connection[CONFIG_BT_MAX_CONN];
+static struct desired_conn desired_connections[CONFIG_BT_MAX_CONN];
 
 #define CONN_MGR_STACK_SIZE 3072
 #define CONN_MGR_PRIORITY 1
@@ -29,7 +24,7 @@ static desired_conns desired_connection[CONFIG_BT_MAX_CONN];
 static void process_connection(int i)
 {
 	int err;
-	connected_ble_devices *dev = &connected_ble_device[i];
+	struct ble_device_conn *dev = &connected_ble_devices[i];
 
 	if (dev->free) {
 		return;
@@ -39,14 +34,8 @@ static void process_connection(int i)
 		ble_add_to_whitelist(dev->addr);
 		dev->added_to_whitelist = true;
 		update_shadow(dev->addr, true, false);
+		dev->shadow_updated = true;
 		LOG_INF("Device added to whitelist.");
-	}
-
-	/* Not connected. Update the shadow. */
-	if (dev->connected && !dev->shadow_updated) {
-		/* TODO: remove? Maybe not the right spot to send this. IDK. */
-		/* device_shadow_data_encode(dev->addr, false, true); */
-		/* dev->shadow_updated = true; */
 	}
 
 	/* Connected. Do discovering if not discovered or currently
@@ -57,11 +46,12 @@ static void process_connection(int i)
 		err = ble_discover(dev->addr);
 
 		if (!err) {
-			dev->discovered = true;
+			LOG_DBG("ble_discover(%s) failed: %d",
+				log_strdup(dev->addr), err);
 		}
 	}
 
-	/* Discoverying done. Encode and send. */
+	/* Discovering done. Encode and send. */
 	if (dev->connected && dev->encode_discovered) {
 		/* I don't know why this is needed in a work thread.
 		 * TODO: FIX
@@ -69,13 +59,9 @@ static void process_connection(int i)
 		uint32_t lock = irq_lock();
 
 		dev->encode_discovered = false;
-		device_discovery_send(&connected_ble_device[i]);
+		device_discovery_send(&connected_ble_devices[i]);
 
 		irq_unlock(lock);
-
-		/* Maybe not the right spot to send this. IDK. */
-		/* device_shadow_data_encode(dev->addr, false, true); */
-		/* update_shadow(dev->addr, false, true); */
 	}
 }
 
@@ -88,7 +74,7 @@ void connection_manager(int unused1, int unused2, int unused3)
 
 		for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 			/* Manager is busy. Do nothing. */
-			if (connected_ble_device[i].discovering) {
+			if (connected_ble_devices[i].discovering) {
 				LOG_DBG("Connection work busy.");
 				goto end;
 			}
@@ -107,44 +93,50 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 		connection_manager, NULL, NULL, NULL,
 		CONN_MGR_PRIORITY, 0, 0);
 
-
-static void ble_conn_mgr_conn_reset(uint8_t conn)
+static void ble_conn_mgr_conn_reset(struct ble_device_conn
+					*dev)
 {
-	connected_ble_device[conn].free = true;
-	connected_ble_device[conn].added_to_whitelist = false;
-	connected_ble_device[conn].connected = false;
-	connected_ble_device[conn].discovered = false;
-	connected_ble_device[conn].encode_discovered = false;
-	connected_ble_device[conn].disconnect = false;
+	dev->free = true;
+	dev->connected = false;
+	dev->disconnect = false;
+	dev->discovering = false;
+	dev->discovered = false;
+	dev->added_to_whitelist = false;
+	dev->encode_discovered = false;
+	dev->shadow_updated = false;
+	dev->num_pairs = 0;
+	LOG_INF("Conn Removed to %s", log_strdup(dev->addr));
 }
 
-void ble_conn_mgr_update_connections()
+void ble_conn_mgr_update_connections(void)
 {
 	int i;
 
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		connected_ble_devices *dev = &connected_ble_device[i];
+		struct ble_device_conn *dev = &connected_ble_devices[i];
 
-		if (dev->connected) {
+		if (dev->connected || dev->added_to_whitelist) {
 			dev->disconnect = true;
 
 			for (int j = 0; j < CONFIG_BT_MAX_CONN; j++) {
-				if (desired_connection[j].active) {
-					if (!strcmp(desired_connection[j].addr,
+				if (desired_connections[j].active) {
+					if (!strcmp(desired_connections[j].addr,
 						    dev->addr)) {
 						/* If in the list then don't
 						 * disconnect.
 						 */
 						dev->disconnect = false;
+						break;
 					}
 				}
 			}
 
 			if (dev->disconnect) {
-				LOG_INF("cloud: disconnect device");
+				LOG_INF("cloud: disconnect device %s",
+					log_strdup(dev->addr));
 				ble_remove_from_whitelist(dev->addr);
 				disconnect_device_by_addr(dev->addr);
-				ble_conn_mgr_conn_reset(i);
+				ble_conn_mgr_conn_reset(dev);
 				if (IS_ENABLED(CONFIG_SETTINGS)) {
 					LOG_INF("Saving settings");
 					settings_save();
@@ -154,28 +146,111 @@ void ble_conn_mgr_update_connections()
 	}
 }
 
-
-void ble_conn_mgr_update_desired(char *addr, uint8_t index)
+void ble_conn_mgr_change_desired(char *addr, uint8_t index,
+				 bool active, bool manual)
 {
 	if (index <= CONFIG_BT_MAX_CONN) {
-		memcpy(desired_connection[index].addr, addr, strlen(addr));
-		desired_connection[index].active = true;
+		strncpy(desired_connections[index].addr, addr, DEVICE_ADDR_LEN);
+		desired_connections[index].active = active;
+		desired_connections[index].manual = manual;
 
-		LOG_INF("Desired Connection Added: %s",
-			desired_connection[index].addr);
+		LOG_INF("Desired Connection %s: %s %s",
+			active ? "Added" : "Removed",
+			log_strdup(addr),
+			manual ? "(manual)" : "");
 	}
 }
 
-void ble_conn_mgr_clear_desired()
+struct desired_conn *get_desired_array(int *array_size)
+{
+	if (array_size == NULL) {
+		return NULL;
+	}
+	*array_size = ARRAY_SIZE(desired_connections);
+	return desired_connections;
+}
+
+static int find_desired_connection(char *addr,
+				   struct desired_conn **pcon)
+{
+	struct desired_conn *con;
+
+	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
+		con = &desired_connections[i];
+		if ((strncmp(addr, con->addr, sizeof(con->addr)) == 0) &&
+		    (addr[0] != '\0')) {
+			if (pcon) {
+				*pcon = con;
+			}
+			return i;
+		}
+	}
+	if (pcon) {
+		*pcon = NULL;
+	}
+	return -EINVAL;
+}
+
+void ble_conn_mgr_update_desired(char *addr, uint8_t index)
+{
+	ble_conn_mgr_change_desired(addr, index, true, false);
+}
+
+int ble_conn_mgr_add_desired(char *addr, bool manual)
+{
+	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
+		if (!desired_connections[i].active) {
+			ble_conn_mgr_change_desired(addr, i, true, manual);
+			return 0;
+		}
+	}
+	return -EINVAL;
+}
+
+int ble_conn_mgr_rem_desired(char *addr, bool manual)
+{
+	if (addr == NULL) {
+		return -EINVAL;
+	}
+
+	int i = find_desired_connection(addr, NULL);
+
+	if (i >= 0) {
+		ble_conn_mgr_change_desired(addr, i, false, manual);
+		return 0;
+	}
+	return -EINVAL;
+}
+
+void ble_conn_mgr_clear_desired(bool all)
 {
 	LOG_INF("Desired Connections Cleared.");
 
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		desired_connection[i].active = false;
+		if (!desired_connections[i].manual || all) {
+			desired_connections[i].active = false;
+		}
 	}
 }
 
-int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
+bool ble_conn_mgr_enabled(char *addr)
+{
+	struct desired_conn *con;
+
+	if (addr == NULL) {
+		return false;
+	}
+
+	find_desired_connection(addr, &con);
+
+	if (con != NULL) {
+		return !con->manual;
+	}
+
+	return true;
+}
+
+int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr, uint16_t handle,
 				char *path, bool ccc)
 {
 	int err = 0;
@@ -191,7 +266,8 @@ int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 	LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		uuid_handle_pairs *uuid_handle = &conn_ptr->uuid_handle_pair[i];
+		struct uuid_handle_pair *uuid_handle =
+			&conn_ptr->uuid_handle_pairs[i];
 
 		if (handle != uuid_handle->handle) {
 			continue;
@@ -208,7 +284,7 @@ int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 				ccc_uuid, BT_MAX_UUID_LEN);
 
 		for (int j = i; j >= 0; j--) {
-			uuid_handle = &conn_ptr->uuid_handle_pair[j];
+			uuid_handle = &conn_ptr->uuid_handle_pairs[j];
 			if (uuid_handle->is_service) {
 				bt_uuid_get_str(&uuid_handle->uuid_128.uuid,
 						service_uuid, BT_MAX_UUID_LEN);
@@ -244,12 +320,12 @@ int ble_conn_mgr_generate_path(connected_ble_devices *conn_ptr, uint16_t handle,
 int ble_conn_mgr_add_conn(char *addr)
 {
 	int err = 0;
-	connected_ble_devices *connected_ble_ptr;
+	struct ble_device_conn *connected_ble_ptr;
 
 	/* Check if already added */
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		if (connected_ble_device[i].free == false) {
-			if (!strcmp(addr, connected_ble_device[i].addr)) {
+		if (connected_ble_devices[i].free == false) {
+			if (!strcmp(addr, connected_ble_devices[i].addr)) {
 				LOG_DBG("Connection already exsists");
 				return 1;
 			}
@@ -265,19 +341,19 @@ int ble_conn_mgr_add_conn(char *addr)
 
 	memcpy(connected_ble_ptr->addr, addr, DEVICE_ADDR_LEN);
 	connected_ble_ptr->free = false;
-	LOG_INF("Ble conn added to manager");
+	LOG_INF("BLE conn to %s added to manager", log_strdup(addr));
 	return err;
 }
 
 int ble_conn_set_connected(char *addr, bool connected)
 {
 	int err = 0;
-	connected_ble_devices *connected_ble_ptr;
+	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
 
 	if (err) {
-		LOG_ERR("Conn not found");
+		LOG_ERR("Conn %s not found", log_strdup(addr));
 		return err;
 	}
 
@@ -286,14 +362,14 @@ int ble_conn_set_connected(char *addr, bool connected)
 	} else {
 		connected_ble_ptr->connected = false;
 	}
-	LOG_INF("Conn updated");
+	LOG_INF("Conn updated: connected=%u", connected);
 	return err;
 }
 
 int ble_conn_set_disconnected(char *addr)
 {
 	int err = 0;
-	connected_ble_devices *connected_ble_ptr;
+	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
 
@@ -303,19 +379,15 @@ int ble_conn_set_disconnected(char *addr)
 	}
 
 	connected_ble_ptr->connected = false;
-	/* Should we need to discover again on reconnect? */
-	connected_ble_ptr->discovered = false;
-	connected_ble_ptr->num_pairs = 0;
 	connected_ble_ptr->shadow_updated = false;
-	/* connected_ble_ptr->added_to_whitelist = false; */
-	LOG_INF("Conn Disconnected");
+	LOG_INF("Conn %s Disconnected", log_strdup(addr));
 	return err;
 }
 
 int ble_conn_mgr_rediscover(char *addr)
 {
 	int err = 0;
-	connected_ble_devices *connected_ble_ptr;
+	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
 
@@ -325,7 +397,6 @@ int ble_conn_mgr_rediscover(char *addr)
 	}
 
 	if (!connected_ble_ptr->discovering) {
-		/* Should we need to discover again on reconnect? */
 		connected_ble_ptr->discovered = false;
 		connected_ble_ptr->num_pairs = 0;
 	}
@@ -336,30 +407,24 @@ int ble_conn_mgr_rediscover(char *addr)
 int ble_conn_mgr_remove_conn(char *addr)
 {
 	int err = 0;
-	connected_ble_devices *connected_ble_ptr;
+	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
-
 	if (err) {
-		LOG_ERR("Can't find conn to remove");
+		LOG_ERR("Can't find conn %s to remove", log_strdup(addr));
 		return err;
 	}
 
-	memset(connected_ble_ptr, 0, sizeof(connected_ble_devices));
-
-	connected_ble_ptr->free = true;
-	connected_ble_ptr->connected = false;
-	connected_ble_ptr->discovered = false;
-	LOG_INF("Conn Removed");
+	ble_conn_mgr_conn_reset(connected_ble_ptr);
 	return err;
 }
 
 
-int ble_conn_mgr_get_free_conn(connected_ble_devices **conn_ptr)
+int ble_conn_mgr_get_free_conn(struct ble_device_conn **conn_ptr)
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		if (connected_ble_device[i].free == true) {
-			*conn_ptr = &connected_ble_device[i];
+		if (connected_ble_devices[i].free == true) {
+			*conn_ptr = &connected_ble_devices[i];
 			LOG_DBG("Found Free connection: %d", i);
 			return 0;
 		}
@@ -368,27 +433,27 @@ int ble_conn_mgr_get_free_conn(connected_ble_devices **conn_ptr)
 }
 
 
-int ble_conn_mgr_get_conn_by_addr(char *addr, connected_ble_devices **conn_ptr)
+int ble_conn_mgr_get_conn_by_addr(char *addr, struct ble_device_conn **conn_ptr)
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		if (!strcmp(addr, connected_ble_device[i].addr)) {
-			*conn_ptr = &connected_ble_device[i];
+		if (!strcmp(addr, connected_ble_devices[i].addr)) {
+			*conn_ptr = &connected_ble_devices[i];
 			LOG_DBG("Conn Found");
 			return 0;
 		}
 	}
-	LOG_ERR("No Conn Found");
+	LOG_ERR("No Conn Found for addr %s", log_strdup(addr));
 	return 1;
 
 }
 
 int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
-				 connected_ble_devices *conn_ptr)
+				 struct ble_device_conn *conn_ptr)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pair[i].handle) {
-			conn_ptr->uuid_handle_pair[i].sub_enabled = true;
-			conn_ptr->uuid_handle_pair[i].sub_index = sub_index;
+		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
+			conn_ptr->uuid_handle_pairs[i].sub_enabled = true;
+			conn_ptr->uuid_handle_pairs[i].sub_index = sub_index;
 			return 0;
 		}
 	}
@@ -398,11 +463,11 @@ int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 
 
 int ble_conn_mgr_remove_subscribed(uint16_t handle,
-				    connected_ble_devices *conn_ptr)
+				    struct ble_device_conn *conn_ptr)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pair[i].handle) {
-			conn_ptr->uuid_handle_pair[i].sub_enabled = false;
+		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
+			conn_ptr->uuid_handle_pairs[i].sub_enabled = false;
 			return 0;
 		}
 	}
@@ -410,13 +475,13 @@ int ble_conn_mgr_remove_subscribed(uint16_t handle,
 }
 
 
-int ble_conn_mgr_get_subscribed(uint16_t handle, connected_ble_devices *conn_ptr,
+int ble_conn_mgr_get_subscribed(uint16_t handle, struct ble_device_conn *conn_ptr,
 				 bool *status, uint8_t *sub_index)
 {
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pair[i].handle) {
-			*status = conn_ptr->uuid_handle_pair[i].sub_enabled;
-			*sub_index = conn_ptr->uuid_handle_pair[i].sub_index;
+		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
+			*status = conn_ptr->uuid_handle_pairs[i].sub_enabled;
+			*sub_index = conn_ptr->uuid_handle_pairs[i].sub_index;
 			return 0;
 		}
 	}
@@ -425,14 +490,15 @@ int ble_conn_mgr_get_subscribed(uint16_t handle, connected_ble_devices *conn_ptr
 }
 
 int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
-				     connected_ble_devices *conn_ptr)
+				     struct ble_device_conn *conn_ptr)
 {
 	char uuid_str[BT_UUID_STR_LEN];
 
 	memset(uuid, 0, BT_UUID_STR_LEN);
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		uuid_handle_pairs *uuid_handle = &conn_ptr->uuid_handle_pair[i];
+		struct uuid_handle_pair *uuid_handle = 
+			&conn_ptr->uuid_handle_pairs[i];
 
 		if (handle == uuid_handle->handle) {
 			bt_uuid_get_str(&uuid_handle->uuid_128.uuid, uuid_str,
@@ -446,20 +512,23 @@ int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
 		}
 	}
 
-	LOG_ERR("Handle Not Found");
+	LOG_ERR("Handle %u on addr %s not found; num pairs: %d", handle,
+		log_strdup(conn_ptr->addr),
+		(int)conn_ptr->num_pairs);
 	return 1;
 }
 
 
 int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
-				     connected_ble_devices *conn_ptr)
+				     struct ble_device_conn *conn_ptr)
 {
 	char str[BT_UUID_STR_LEN];
 
 	LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		uuid_handle_pairs *uuid_handle = &conn_ptr->uuid_handle_pair[i];
+		struct uuid_handle_pair *uuid_handle =
+			&conn_ptr->uuid_handle_pairs[i];
 
 		bt_uuid_get_str(&uuid_handle->uuid_16.uuid, str, sizeof(str));
 		bt_to_upper(str, strlen(str));
@@ -490,7 +559,7 @@ int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 				uint8_t path_depth, uint8_t properties,
 				uint8_t attr_type,
-				connected_ble_devices *conn_ptr,
+				struct ble_device_conn *conn_ptr,
 				bool is_service)
 {
 	int err = 0;
@@ -502,19 +571,20 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 	}
 
 	if (conn_ptr->num_pairs >= MAX_UUID_PAIRS) {
-		LOG_ERR("Max uuid pair limit reached");
+		LOG_ERR("Max uuid pair limit reached on %s",
+			log_strdup(conn_ptr->addr));
 		return 1;
 	}
 
-	LOG_INF("Handle Added: %d", handle);
+	LOG_DBG("Handle Added: %d", handle);
 
 	if (!uuid) {
 		return 0;
 	}
 
-	uuid_handle_pairs *uuid_handle;
+	struct uuid_handle_pair *uuid_handle;
 
-	uuid_handle = &conn_ptr->uuid_handle_pair[conn_ptr->num_pairs];
+	uuid_handle = &conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs];
 
 	switch (uuid->type) {
 	case BT_UUID_TYPE_16:
@@ -537,25 +607,38 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 		return 0;
 	}
 
-	conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].properties = properties;
-	conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].attr_type = attr_type;
-	conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].path_depth = path_depth;
-	conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].is_service = is_service;
-	conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].handle = handle;
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].properties = properties;
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].attr_type = attr_type;
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].path_depth = path_depth;
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].is_service = is_service;
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].handle = handle;
+	LOG_INF("%d. Handle Added: %d", conn_ptr->num_pairs, handle);
 
 	conn_ptr->num_pairs++;
 
 	return err;
 }
 
+struct ble_device_conn *get_connected_device(unsigned int i)
+{
+	if (i < CONFIG_BT_MAX_CONN) {
+		if (!connected_ble_devices[i].free) {
+			return &connected_ble_devices[i];
+		}
+	}
+	return NULL;
+}
+
 void ble_conn_mgr_init()
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		connected_ble_device[i].free = true;
-		connected_ble_device[i].added_to_whitelist = false;
-		connected_ble_device[i].connected = false;
-		connected_ble_device[i].discovered = false;
-		connected_ble_device[i].encode_discovered = false;
-		connected_ble_device[i].disconnect = false;
+		connected_ble_devices[i].connected = false;
+		connected_ble_devices[i].discovering = false;
+		connected_ble_devices[i].free = true;
+		connected_ble_devices[i].discovered = false;
+		connected_ble_devices[i].encode_discovered = false;
+		connected_ble_devices[i].added_to_whitelist = false;
+		connected_ble_devices[i].shadow_updated = false;
+		connected_ble_devices[i].disconnect = false;
 	}
 }

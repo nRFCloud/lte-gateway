@@ -29,6 +29,7 @@
 #include <posix/time.h>
 #include <fw_info.h>
 #include <settings/settings.h>
+#include <debug/cpu_load.h>
 
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
@@ -45,6 +46,7 @@
 #include "ble_conn_mgr.h"
 #include "ble.h"
 #include "config.h"
+#include "gateway.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
@@ -156,9 +158,12 @@ static K_SEM_DEFINE(bsdlib_initialized, 0, 1);
 static K_SEM_DEFINE(lte_connected, 0, 1);
 static K_SEM_DEFINE(cloud_ready_to_connect, 0, 1);
 #endif
+static bool cloud_connection_enabled = true;
+static bool cloud_connection_status;
+static bool lte_connection_status;
 
 #ifdef CONFIG_MODEM_INFO
-static struct modem_param_info modem_param;
+struct modem_param_info modem_param;
 #endif
 
 enum error_type {
@@ -174,8 +179,19 @@ static void work_init(void);
 static void cycle_cloud_connection(struct k_work *work);
 static void connection_evt_handler(const struct cloud_event *const evt);
 
+bool get_lte_connection_status(void)
+{
+	return lte_connection_status;
+}
+
+bool get_cloud_connection_status(void)
+{
+	return cloud_connection_status;
+}
+
 static void shutdown_modem(void)
 {
+	lte_connection_status = false;
 #if defined(CONFIG_LTE_LINK_CONTROL)
 	/* Turn off and shutdown modem */
 	LOG_ERR("LTE link disconnect");
@@ -279,6 +295,11 @@ static void app_disconnect(void)
 }
 #endif /* defined(CONFIG_LWM2M_CARRIER) */
 
+void set_log_panic(void)
+{
+	LOG_PANIC();
+}
+
 /**@brief nRF Cloud error handler. */
 void error_handler(enum error_type err_type, int err_code)
 {
@@ -348,6 +369,12 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 		return;
 	}
 
+	cloud_connection_status = false;
+
+	if (!cloud_connection_enabled) {
+		LOG_WRN("Ignoring cloud error");
+		return;
+	}
 	LOG_ERR("Failed to connect to cloud, error %d", err);
 
 	switch (err) {
@@ -367,7 +394,7 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 			backend_name = cloud_backend->config->name;
 		}
 		LOG_ERR("An error occurred specific to the cloud back-end: %s",
-			backend_name);
+			log_strdup(backend_name));
 		break;
 	}
 	case CLOUD_CONNECT_RES_ERR_PRV_KEY: {
@@ -422,6 +449,11 @@ void connect_to_cloud(const int32_t connect_delay_s)
 {
 	static bool initial_connect = true;
 
+	if (!cloud_connection_enabled) {
+		LOG_WRN("Cloud disabled; not connecting");
+		return;
+	}
+
 	/* Ensure no data can be sent to cloud before connection is established.
 	 */
 	atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_INIT);
@@ -459,7 +491,7 @@ void connect_to_cloud(const int32_t connect_delay_s)
 		if (ret) {
 			LOG_ERR("Could not retrieve ID: %d", ret);
 		} else {
-			LOG_INF("Device ID = %s", id);
+			LOG_INF("Device ID = %s", log_strdup(id));
 			LOG_INF("Endpoint = %s", CONFIG_NRF_CLOUD_HOST_NAME);
 		}
 	}
@@ -519,6 +551,10 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 		LOG_INF("Add device to cloud account.");
 		LOG_INF("Waiting for cloud association...");
 
+		ble_conn_mgr_init();
+		ble_conn_mgr_clear_desired(true);
+		ble_stop_activity();
+
 		/* If the association is not done soon enough (< ~5 min?)
 		 * a connection cycle is needed... TBD why.
 		 */
@@ -533,6 +569,7 @@ static void cycle_cloud_connection(struct k_work *work)
 	int32_t reboot_wait_ms = REBOOT_AFTER_DISCONNECT_WAIT_MS;
 
 	LOG_INF("Disconnecting from cloud...");
+	cloud_connection_status = false;
 
 	if (cloud_disconnect(cloud_backend) != 0) {
 		reboot_wait_ms = 5 * MSEC_PER_SEC;
@@ -608,6 +645,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		on_pairing_done();
 		break;
 	case CLOUD_EVT_FOTA_DONE:
+		lte_connection_status = false;
 		LOG_INF("CLOUD_EVT_FOTA_DONE");
 #if defined(CONFIG_LTE_LINK_CONTROL)
 		lte_lc_power_off();
@@ -622,23 +660,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 	}
 }
 
-void log_fw_info(void)
-{
-	/* TODO: debug this */
-	/* this does not work: fw_info *info = fw_info_find(0); */
-	extern struct fw_info m_firmware_info;
-	struct fw_info *info = &m_firmware_info;
-
-	if (info) {
-		LOG_INF("HW:%s FW:%s Built:%s", HW_REV_STRING, FW_REV_STRING,
-			BUILT_STRING);
-		LOG_INF("Ver:%u, Size:%u, Start:0x%08x, Boot:0x%08x, Valid:%u",
-			info->version, info->size, info->address,
-			info->boot_address, info->valid);
-	}
-}
-
-void log_modem_info(void)
+void query_modem_info(void)
 {
 #ifdef CONFIG_MODEM_INFO
 	modem_info_init();
@@ -649,29 +671,6 @@ void log_modem_info(void)
 	if (ret) {
 		LOG_ERR("Error getting modem info: %d", ret);
 	} else {
-		if (modem_param.device.modem_fw.type == MODEM_INFO_FW_VERSION) {
-			LOG_INF("Modem fw version: %s",
-				modem_param.device.modem_fw.value_string);
-		} else {
-			LOG_INF("Modem fw type %u val %u",
-				modem_param.device.modem_fw.type,
-				modem_param.device.modem_fw.value);
-		}
-		if (modem_param.device.imei.type == MODEM_INFO_IMEI) {
-			LOG_INF("IMEI: %s",
-				modem_param.device.imei.value_string);
-		}
-		if (modem_param.network.lte_mode.value == 1) {
-			LOG_INF("LTE-M");
-		} else if (modem_param.network.nbiot_mode.value == 1) {
-			LOG_INF("NB-IoT");
-		}
-		if (modem_param.network.current_operator.type ==
-		    MODEM_INFO_OPERATOR) {
-			LOG_INF("Operator: %s",
-			     modem_param.network.current_operator.value_string);
-		}
-		LOG_INF("Cell ID: %ld", (long)modem_param.network.cellid_dec);
 		if (modem_param.network.date_time.value_string) {
 			char *str = modem_param.network.date_time.value_string;
 
@@ -679,7 +678,7 @@ void log_modem_info(void)
 			_daylight = atoi(&str[25]);
 			LOG_INF("Network date/time: %s "
 				"DST %d TZ %ld",
-				modem_param.network.date_time.value_string,
+				log_strdup(modem_param.network.date_time.value_string),
 				_daylight, _timezone);
 
 			struct tm tm;
@@ -711,15 +710,19 @@ void log_modem_info(void)
 		} else {
 			LOG_WRN("modem_info.network.date_time: empty");
 		}
-
-
 	}
 #endif
+}
+
+void control_cloud_connection(bool enable)
+{
+	cloud_connection_enabled = enable;
 }
 
 void connection_evt_handler(const struct cloud_event *const evt)
 {
 	if (evt->type == CLOUD_EVT_CONNECTING) {
+		cloud_connection_status = false;
 		LOG_INF("CLOUD_EVT_CONNECTING");
 		ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 		k_delayed_work_cancel(&cloud_reboot_work);
@@ -729,8 +732,9 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		}
 		return;
 	} else if (evt->type == CLOUD_EVT_CONNECTED) {
+		cloud_connection_status = true;
 		LOG_INF("*******************************");
-		log_modem_info();
+		query_modem_info();
 		LOG_INF("*******************************");
 		LOG_INF("CLOUD_EVT_CONNECTED");
 		k_delayed_work_cancel(&cloud_reboot_work);
@@ -743,6 +747,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
 
+		cloud_connection_status = false;
 		LOG_INF("CLOUD_EVT_DISCONNECTED: %d", evt->data.err);
 		ui_led_set_pattern(UI_LTE_CONNECTED, PWM_DEV_0);
 
@@ -772,23 +777,30 @@ void connection_evt_handler(const struct cloud_event *const evt)
 			}
 			break;
 		case CLOUD_DISCONNECT_USER_REQUEST:
+			LOG_INF("CLOUD_DISCONNECT_USER_REQUEST");
 			if (atomic_get(&cloud_association) ==
 					CLOUD_ASSOCIATION_STATE_RECONNECT ||
 				atomic_get(&cloud_association) ==
 					CLOUD_ASSOCIATION_STATE_REQUESTED ||
 				(atomic_get(&carrier_requested_disconnect))) {
 				connect_wait_s = 10;
+				LOG_INF("reconnect for association");
+			} else {
+				connect_wait_s = -1;
 			}
 			break;
 		case CLOUD_DISCONNECT_CLOSED_BY_REMOTE:
 			LOG_INF("Disconnected by the cloud.");
 			break;
 		case CLOUD_DISCONNECT_MISC:
+			LOG_INF("CLOUD_DISCONNECT_MISC");
 		default:
 			break;
 		}
 		k_sem_give(&cloud_disconnected);
-		connect_to_cloud(connect_wait_s);
+		if ((connect_wait_s >= 0) && cloud_connection_enabled) {
+			connect_to_cloud(connect_wait_s);
+		}
 	}
 }
 
@@ -841,12 +853,14 @@ static int modem_configure(void)
 #else /* defined(CONFIG_LWM2M_CARRIER) */
 	int err = lte_lc_init_and_connect();
 	if (err) {
+		lte_connection_status = false;
 		LOG_ERR("LTE link could not be established.");
 		return err;
 	}
 #endif /* defined(CONFIG_LWM2M_CARRIER) */
 
 connected:
+	lte_connection_status = true;
 	LOG_INF("Connected to LTE network.");
 	ui_led_set_pattern(UI_LTE_CONNECTED, PWM_DEV_0);
 
@@ -914,13 +928,26 @@ static void log_uart_pins(void)
 #endif
 }
 
+
+void lg_printk(char *fmt, ...)
+{
+	va_list args;
+	
+	va_start(args, fmt);
+	log_printk(fmt, args);
+	va_end(args);
+}
+
 void main(void)
 {
-	LOG_INF("********************************");
-	LOG_INF("nRF Cloud Gateway Starting Up...");
-	log_fw_info();
+	lg_printk("\n*************************************************\n");
+	lg_printk("nRF Cloud Gateway Starting Up...\n");
+	lg_printk("Ver:%s Built:%s\n", FW_REV_STRING, BUILT_STRING);
+	lg_printk("*************************************************\n\n");
+	k_sleep(K_SECONDS(5));
+	cli_init();
+
 	log_uart_pins();
-	LOG_INF("********************************");
 
 #if defined(CONFIG_USE_UI_MODULE)
 	ui_init(power_button_handler);
@@ -936,6 +963,8 @@ void main(void)
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
 		       CONFIG_APPLICATION_WORKQUEUE_PRIORITY);
+	k_thread_name_set(&application_work_q.thread, "appworkq");
+
 	if (IS_ENABLED(CONFIG_WATCHDOG)) {
 		watchdog_init_and_start(&application_work_q);
 	}
@@ -953,6 +982,9 @@ void main(void)
 	cloud_api_init();
 
 	work_init();
+#if defined(CONFIG_CPU_LOAD)
+	cpu_load_init();
+#endif
 
 	while (modem_configure() != 0) {
 		LOG_WRN("Failed to establish LTE connection.");
