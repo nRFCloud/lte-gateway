@@ -13,6 +13,7 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble_conn_mgr, CONFIG_LOG_DEFAULT_LEVEL);
 
+static int num_connected;
 static struct ble_device_conn connected_ble_devices[CONFIG_BT_MAX_CONN];
 
 static struct desired_conn desired_connections[CONFIG_BT_MAX_CONN];
@@ -96,7 +97,12 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 static void ble_conn_mgr_conn_reset(struct ble_device_conn
 					*dev)
 {
-	dev->free = true;
+	if (!dev->free) {
+		if (num_connected) {
+			num_connected--;
+		}
+		dev->free = true;
+	}
 	dev->connected = false;
 	dev->disconnect = false;
 	dev->discovering = false;
@@ -341,6 +347,7 @@ int ble_conn_mgr_add_conn(char *addr)
 
 	memcpy(connected_ble_ptr->addr, addr, DEVICE_ADDR_LEN);
 	connected_ble_ptr->free = false;
+	num_connected++;
 	LOG_INF("BLE conn to %s added to manager", log_strdup(addr));
 	return err;
 }
@@ -629,8 +636,14 @@ struct ble_device_conn *get_connected_device(unsigned int i)
 	return NULL;
 }
 
+int get_num_connected(void)
+{
+	return num_connected;
+}
+
 void ble_conn_mgr_init()
 {
+	num_connected = 0;
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		connected_ble_devices[i].connected = false;
 		connected_ble_devices[i].discovering = false;

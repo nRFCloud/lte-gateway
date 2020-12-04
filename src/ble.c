@@ -41,10 +41,12 @@ static struct ble_msg output = {
 	.len = MAX_BUF_SIZE
 };
 
-static bool discover_in_progress = false;
-static bool scan_waiting = false;
+static bool discover_in_progress;
+static bool scan_waiting;
+static bool print_scan_results;
 
 static int num_devices_found;
+static int num_names_found;
 
 struct k_timer rec_timer;
 struct k_timer scan_timer;
@@ -353,7 +355,7 @@ static void discovery_service_not_found(struct bt_conn *conn, void *ctx)
 
 	/* check scan waiting */
 	if (scan_waiting) {
-		scan_start();
+		scan_start(print_scan_results);
 	}
 }
 
@@ -387,7 +389,7 @@ static void discovery_error_found(struct bt_conn *conn, int err, void *ctx)
 
 	/* check scan waiting */
 	if (scan_waiting) {
-		scan_start();
+		scan_start(print_scan_results);
 	}
 }
 
@@ -1129,6 +1131,9 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	memset(name, 0, sizeof(name));
 	bt_data_parse(ad, data_cb, name);
 	strcpy(scanned->name, name);
+	if (strlen(name)) {
+		num_names_found++;
+	}
 
 	scanned->rssi = (int)rssi;
 	num_devices_found++;
@@ -1144,6 +1149,16 @@ struct ble_scanned_dev *get_scanned_device(unsigned int i)
 	} else {
 		return NULL;
 	}
+}
+
+int get_num_scan_results(void)
+{
+	return num_devices_found;
+}
+
+int get_num_scan_names(void)
+{
+	return num_names_found;
 }
 
 void scan_off_handler(struct k_work *work)
@@ -1164,6 +1179,21 @@ void scan_off_handler(struct k_work *work)
 
 	LOG_DBG("Submitting scan...");
 	k_work_submit(&ble_device_encode_work);
+
+	if (print_scan_results) {
+		print_scan_results = false;
+
+		struct ble_scanned_dev *scanned;
+		int i;
+
+		printk("Scan results:\n");
+		for (i = 0, scanned = ble_scanned_devices;
+		     i < num_devices_found; i++, scanned++) {
+			printk("%d. %s, %d, %s\n", i, scanned->addr,
+			       (int)scanned->rssi, scanned->name);
+			k_sleep(K_MSEC(50));
+		}
+	}
 }
 
 K_WORK_DEFINE(scan_off_work, scan_off_handler);
@@ -1276,11 +1306,13 @@ int device_discovery_send(struct ble_device_conn *conn_ptr)
 	return ret;
 }
 
-void scan_start(void)
+void scan_start(bool print)
 {
 	int err;
 
+	print_scan_results = print;
 	num_devices_found = 0;
+	num_names_found = 0;
 	memset(ble_scanned_devices, 0, sizeof(ble_scanned_devices));
 
 	struct bt_le_scan_param param = {
