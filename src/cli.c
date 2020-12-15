@@ -575,6 +575,25 @@ static enum ble_cmd_type get_cmd_type(char *arg)
 	return ret;
 }
 
+/* This dynamic command helper is called repeatedly by the shell when
+ * the user wants command completion which lists possible MAC addresses. 
+ * It calls this until it returns NULL.
+ * 
+ * The first for loop returns all the devices we are already supposed to
+ * connect to, because they're in the shadow's desiredConnections array.
+ * The second nested for loop effectively appends to that list any scan
+ * results which are not also devices we should connect with (so those
+ * devices are not listed twice).
+ * 
+ * This would happen if the user used the CLI to scan for advertising
+ * devices with 'ble scan', then used 'ble conn' to connect to one
+ * (which temporarily adds this new device to the desiredConnections
+ * array), and then used a dynamic command completion which hits this
+ * function.
+ *
+ * Often, the scan results are empty, and there is just a short list
+ * of desired connections, so the second loop does nothing.
+ */
 static const char *get_mac_addr(size_t idx)
 {
 	unsigned int i;
