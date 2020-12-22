@@ -4,7 +4,7 @@
 #include <net/socket.h>
 #include <bluetooth/gatt.h>
 #include <power/reboot.h>
-#include <bsd.h>
+#include <nrf_modem.h>
 #include <logging/log.h>
 #include <logging/log_ctrl.h>
 #include <modem/lte_lc.h>
@@ -344,8 +344,8 @@ void device_shutdown(bool reboot)
 			err);
 	}
 
-	LOG_INF("Shutdown bsdlib...");
-	err = bsd_shutdown();
+	LOG_INF("Shutdown modem...");
+	err = nrf_modem_shutdown();
 	if (err) {
 		LOG_ERR("Error on bsd_shutdown(): %d",
 			err);
