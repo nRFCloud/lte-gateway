@@ -229,25 +229,25 @@ void print_connection_status(const struct shell *shell)
 	if (err) {
 		shell_error(shell, "lte_lc_nw_reg_status_get: %d", err);
 	} else {
-		shell_print(shell, "LTE reg status: \t%d\n", (int)status);
+		shell_print(shell, "LTE reg status: \t%d", (int)status);
 	}
 	err = lte_lc_system_mode_get(&smode);
 	if (err) {
 		shell_error(shell, "lte_lc_system_mode_get: %d", err);
 	} else {
-		shell_print(shell, "LTE system mode: \t%d\n", (int)smode);
+		shell_print(shell, "LTE system mode: \t%d", (int)smode);
 	}
 	err = lte_lc_func_mode_get(&fmode);
 	if (err) {
 		shell_error(shell, "lte_lc_func_mode_get: %d", err);
 	} else {
-		shell_print(shell, "LTE functional mode: \t%d\n", (int)fmode);
+		shell_print(shell, "LTE functional mode: \t%d", (int)fmode);
 	}
 
-	shell_print(shell, "LTE connection: \t%s\n",
+	shell_print(shell, "LTE connection: \t%s",
 		    get_lte_connection_status() ?
 		    "connected" : "disconnected");
-	shell_print(shell, "cloud connection: \t%s\n",
+	shell_print(shell, "cloud connection: \t%s",
 		    get_cloud_connection_status() ?
 		    "connected" : "disconnected");
 }
@@ -351,14 +351,14 @@ static void print_conn_info(const struct shell *shell)
 	const char *types[] = {"svc", "chr", "---", "ccc"};
 
 	shell_print(shell, "   MAC, connected, discovered, shadow"
-			   " updated, blocklist status, num UUIDs");
+			   " updated, blocklist status, ctrld by, num UUIDs");
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		dev = get_connected_device(i);
 		if (dev == NULL) {
 			continue;
 		}
 		count++;
-		shell_print(shell, "%u. %s, %s, %s, %s, %s, UUIDs:%u",
+		shell_print(shell, "%u. %s, %s, %s, %s, %s, %s, UUIDs:%u",
 			    count,
 			    dev->addr,
 			    dev->connected ? "CONNNECTED" : "disconnected",
@@ -368,6 +368,7 @@ static void print_conn_info(const struct shell *shell)
 			    "shadow not set",
 			    dev->added_to_whitelist ? "CONN ALLOWED" :
 			    "conn blocked",
+			    ble_conn_mgr_enabled(dev->addr) ? "CLOUD" : "local",
 			    (unsigned int)dev->num_pairs
 			   );
 		shell_print(shell, "   is service, UUID, handle, type, path"
@@ -574,7 +575,217 @@ static enum ble_cmd_type get_cmd_type(char *arg)
 	return ret;
 }
 
-/* COMMAND HANDLERS*/
+/* This dynamic command helper is called repeatedly by the shell when
+ * the user wants command completion which lists possible MAC addresses. 
+ * It calls this until it returns NULL.
+ * 
+ * The first for loop returns all the devices we are already supposed to
+ * connect to, because they're in the shadow's desiredConnections array.
+ * The second nested for loop effectively appends to that list any scan
+ * results which are not also devices we should connect with (so those
+ * devices are not listed twice).
+ * 
+ * This would happen if the user used the CLI to scan for advertising
+ * devices with 'ble scan', then used 'ble conn' to connect to one
+ * (which temporarily adds this new device to the desiredConnections
+ * array), and then used a dynamic command completion which hits this
+ * function.
+ *
+ * Often, the scan results are empty, and there is just a short list
+ * of desired connections, so the second loop does nothing.
+ */
+static const char *get_mac_addr(size_t idx)
+{
+	unsigned int i;
+	unsigned int j;
+	struct ble_scanned_dev *dev;
+	struct ble_device_conn *con;
+	int count = 0;
+
+	/* combine our list of desired connections and scan results */
+	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
+		con = get_connected_device(i);
+		if (con == NULL) {
+			continue;
+		}
+		if (count == idx) {
+			return con->addr;
+		}
+		count++;
+	}
+
+	for (i = 0; i < MAX_SCAN_RESULTS; i++) {
+		dev = get_scanned_device(i);
+		if (dev == NULL) {
+			break;   /* end of list of scanned devices */
+		}
+		for (j = 0; j < CONFIG_BT_MAX_CONN; j++) {
+			con = get_connected_device(i);
+			if (con == NULL) {
+				continue;
+			}
+			if (strcmp(con->addr, dev->addr) == 0) {
+				dev = NULL;
+				break;
+			}
+		}
+		if (dev == NULL) {
+			continue; /* scan matches connected device, so skip */
+		}
+		if (count == idx) {
+			return dev->addr;
+		}
+		count++;
+	}
+
+	return NULL;
+}
+
+static const char *get_device_name(size_t idx)
+{
+	unsigned int i;
+	struct ble_scanned_dev *dev;
+	int count = 0;
+
+	for (i = 0; i < MAX_SCAN_RESULTS; i++) {
+		dev = get_scanned_device(i);
+		if (dev == NULL) {
+			break;   /* end of list of scanned devices */
+		}
+		if (dev->name == NULL) {
+			continue; /* not all scan results include names */
+		}
+		if (strlen(dev->name) == 0) {
+			continue;
+		}
+		if (count == idx) {
+			return dev->name;
+		}
+		count++;
+	}
+
+	return NULL;
+}
+
+static const char *get_cmd_param(size_t idx)
+{
+	/* all is a valid parameter */
+	if (idx == 0) {
+		return "all";
+	}
+	/* return any known device names */
+	if (idx <= get_num_scan_names()) {
+		return get_device_name(idx - 1);
+	}
+	/* then any MAC addresses */
+	return get_mac_addr(idx - 1 - get_num_scan_names());
+}
+
+uint32_t get_log_module_level(const struct shell *shell, const char *name)
+{
+	uint32_t modules_cnt = log_sources_count();
+	const char *tmp_name;
+	uint32_t i;
+	uint32_t level = LOG_LEVEL_NONE;
+
+	/* if current log level of ble module >= INF, then no print needed */
+	for (i = 0U; i < modules_cnt; i++) {
+		tmp_name = log_source_name_get(CONFIG_LOG_DOMAIN_ID, i);
+		if (tmp_name == NULL) {
+			continue;
+		}
+		if (strcmp(tmp_name, name) == 0) {
+			level = log_filter_get(shell->log_backend->backend,
+					       CONFIG_LOG_DOMAIN_ID, i, true);
+			break;
+		}
+	}
+	return level;
+}
+
+/* COMMAND HANDLERS */
+
+static int cmd_info_list(const struct shell *shell, size_t argc, char **argv)
+{
+	/* Get MAC from argv */
+	shell_print(shell, "MAC selected: %s", argv[0]);
+
+	size_t idx = 0;
+	const char *addr;
+
+	for (idx = 0;; idx++) {
+		addr = get_mac_addr(idx);
+		if (addr) {
+			shell_print(shell, "%zd. %s", idx, addr);
+		} else {
+			shell_print(shell, "end of list");
+			break;
+		}
+	}
+	return 0;
+}
+
+#define DYNAMIC_ADDR_HELP " Valid BLE MAC address"
+
+static void get_dynamic_addr(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_mac_addr(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_info_list;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_ADDR_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 6;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_addr, get_dynamic_addr);
+
+static int cmd_param_list(const struct shell *shell, size_t argc, char **argv)
+{
+	/* Get MAC from argv */
+	shell_print(shell, "param selected: %s", argv[0]);
+
+	size_t idx = 0;
+	const char *param;
+
+	shell_print(shell, "num scan names:   %d", get_num_scan_names());
+	shell_print(shell, "num scan results: %d", get_num_scan_results());
+	shell_print(shell, "num connected:    %d", get_num_connected());
+
+	for (idx = 0;; idx++) {
+		param = get_cmd_param(idx);
+		if (param) {
+			shell_print(shell, "%zd. %s", idx, param);
+		} else {
+			shell_print(shell, "end of list");
+			break;
+		}
+	}
+	return 0;
+}
+
+#define DYNAMIC_PARAM_HELP " all | name | MAC"
+
+static void get_dynamic_param(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_cmd_param(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_param_list;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 6;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_param, get_dynamic_param);
 
 static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 {
@@ -644,7 +855,10 @@ static int cmd_ble_scan(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	scan_start();
+	/* if current log level of ble module < INF, then print needed */
+	bool print_scan = (get_log_module_level(shell, "ble") < LOG_LEVEL_INF);
+
+	scan_start(print_scan);
 	return 0;
 }
 
@@ -659,53 +873,93 @@ static int cmd_ble_save(const struct shell *shell, size_t argc, char **argv)
 
 static int cmd_ble_conn(const struct shell *shell, size_t argc, char **argv)
 {
-	if (argc < 2) {
+	char *arg = argv[0];
+
+	if (argc < 1) {
 		return -EINVAL;
 	}
 
-	switch (get_cmd_type(argv[1])) {
+	switch (get_cmd_type(arg)) {
 	case BLE_CMD_ALL:
 		shell_print(shell, "connecting all BLE devices...");
 		return ble_conn_all(shell);
 	case BLE_CMD_MAC:
-		shell_print(shell, "connecting to MAC %s", argv[1]);
-		return ble_conn_mac(shell, argv[1]);
+		shell_print(shell, "connecting to MAC %s", arg);
+		return ble_conn_mac(shell, arg);
 	case BLE_CMD_NAME:
-		shell_print(shell, "connecting to name %s", argv[1]);
-		return ble_conn_name(shell, argv[1]);
+		shell_print(shell, "connecting to name %s", arg);
+		return ble_conn_name(shell, arg);
 	default:
 		return -EINVAL;
 	}
 }
 
+static void get_dynamic_ble_conn(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_cmd_param(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_ble_conn;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 0;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_conn, get_dynamic_ble_conn);
+
 static int cmd_ble_disc(const struct shell *shell, size_t argc, char **argv)
 {
-	if (argc < 2) {
+	char *arg = argv[0];
+
+	if (argc < 1) {
 		return -EINVAL;
 	}
 
-	switch (get_cmd_type(argv[1])) {
+	switch (get_cmd_type(arg)) {
 	case BLE_CMD_ALL:
 		shell_print(shell, "disconnecting all BLE devices...");
 		return ble_disconn_all(shell);
 	case BLE_CMD_MAC:
-		shell_print(shell, "disconnecting MAC %s", argv[1]);
-		return ble_disconn_mac(shell, argv[1]);
+		shell_print(shell, "disconnecting MAC %s", arg);
+		return ble_disconn_mac(shell, arg);
 	case BLE_CMD_NAME:
-		shell_print(shell, "disconnecting name %s", argv[1]);
-		return ble_disconn_name(shell, argv[1]);
+		shell_print(shell, "disconnecting name %s", arg);
+		return ble_disconn_name(shell, arg);
 	default:
 		return -EINVAL;
 	}
 }
 
+static void get_dynamic_ble_disc(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_cmd_param(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_ble_disc;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 0;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_disc, get_dynamic_ble_disc);
+
 static int cmd_ble_notif_en(const struct shell *shell, size_t argc, char **argv)
 {
-	if (argc < 2) {
+	char *arg = argv[0];
+
+	if (argc < 1) {
 		return -EINVAL;
 	}
 
-	switch (get_cmd_type(argv[1])) {
+	switch (get_cmd_type(arg)) {
 	case BLE_CMD_ALL:
 		shell_print(shell, "enable notifications on all devices");
 		struct ble_device_conn *dev;
@@ -726,17 +980,17 @@ static int cmd_ble_notif_en(const struct shell *shell, size_t argc, char **argv)
 		}
 		break;
 	case BLE_CMD_MAC:
-		if ((argc < 3) || (strcmp(argv[2], "all") == 0)) {
+		if ((argc < 2) || (strcmp(argv[1], "all") == 0)) {
 			shell_print(shell, "enable all notifications on MAC %s",
-				    argv[1]);
-			ble_subscribe_all(argv[1], BT_GATT_CCC_NOTIFY);
+				    arg);
+			ble_subscribe_all(arg, BT_GATT_CCC_NOTIFY);
 			return 0;
 		}
-		uint16_t handle = atoi(argv[2]);
+		uint16_t handle = atoi(argv[1]);
 
 		shell_print(shell, "enable notification on MAC %s handle %u",
-			    argv[1], handle);
-		ble_subscribe_handle(argv[1], handle, BT_GATT_CCC_NOTIFY);
+			    arg, handle);
+		ble_subscribe_handle(arg, handle, BT_GATT_CCC_NOTIFY);
 		break;
 	default:
 		return -EINVAL;
@@ -744,13 +998,32 @@ static int cmd_ble_notif_en(const struct shell *shell, size_t argc, char **argv)
 	return 0;
 }
 
+static void get_dynamic_ble_en(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_cmd_param(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_ble_notif_en;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 2;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_en, get_dynamic_ble_en);
+
 static int cmd_ble_notif_dis(const struct shell *shell, size_t argc, char **argv)
 {
-	if (argc < 2) {
+	char *arg = argv[0];
+
+	if (argc < 1) {
 		return -EINVAL;
 	}
 
-	switch (get_cmd_type(argv[1])) {
+	switch (get_cmd_type(arg)) {
 	case BLE_CMD_ALL:
 		shell_print(shell, "disable notifications on all devices");
 		struct ble_device_conn *dev;
@@ -767,23 +1040,40 @@ static int cmd_ble_notif_dis(const struct shell *shell, size_t argc, char **argv
 		}
 		break;
 	case BLE_CMD_MAC:
-		if ((argc < 3) || (strcmp(argv[2], "all") == 0)) {
+		if ((argc < 2) || (strcmp(argv[1], "all") == 0)) {
 			shell_print(shell, "disable all notifications on MAC %s",
-				    argv[1]);
-			ble_subscribe_all(argv[1], 0);
+				    arg);
+			ble_subscribe_all(arg, 0);
 			return 0;
 		}
-		uint16_t handle = atoi(argv[2]);
+		uint16_t handle = atoi(argv[1]);
 
 		shell_print(shell, "disable notification on MAC %s handle %u",
-			    argv[1], handle);
-		ble_subscribe_handle(argv[1], handle, 0);
+			    arg, handle);
+		ble_subscribe_handle(arg, handle, 0);
 		break;
 	default:
 		return -EINVAL;
 	}
 	return 0;
 }
+
+static void get_dynamic_ble_dis(size_t idx, struct shell_static_entry *entry)
+{
+	entry->syntax = get_cmd_param(idx);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_ble_notif_dis;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 1;
+	entry->args.optional = 1;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_dis, get_dynamic_ble_dis);
 
 static void set_at_prompt(const struct shell *shell, bool at_mode)
 {
@@ -1040,18 +1330,24 @@ void cli_init(void)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_info,
-	SHELL_CMD(gateway, NULL, "Gateway information.",
-		  cmd_info_gateway),
-	SHELL_CMD(modem, NULL, "Modem information.", cmd_info_modem),
 	SHELL_CMD(cloud, NULL, "Cloud information.", cmd_info_cloud),
 	SHELL_CMD(ctlr, NULL, "BLE controller information.",
-		  cmd_info_ctlr),
-	SHELL_CMD(scan, NULL, "Bluetooth scan results.",
-		  cmd_info_scan),
+	          cmd_info_ctlr),
 	SHELL_CMD(conn, NULL, "Connected Bluetooth devices information.",
-		  cmd_info_conn),
+	          cmd_info_conn),
+	SHELL_CMD(gateway, NULL, "Gateway information.",
+		  cmd_info_gateway),
 	SHELL_COND_CMD(CONFIG_GATEWAY_DBG_CMDS,
 		       irq, NULL, "Dump IRQ table.", cmd_info_irq),
+	SHELL_COND_CMD(CONFIG_GATEWAY_DBG_CMDS,
+		       list, &dynamic_addr,
+		       "List known BLE MAC addresses.", NULL),
+	SHELL_CMD(modem, NULL, "Modem information.", cmd_info_modem),
+	SHELL_COND_CMD(CONFIG_GATEWAY_DBG_CMDS,
+		       param, &dynamic_param,
+		       "List parameters.", NULL),
+	SHELL_CMD(scan, NULL, "Bluetooth scan results.",
+		  cmd_info_scan),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 SHELL_CMD_REGISTER(info, &sub_info, "Informational commands", NULL);
@@ -1060,16 +1356,16 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
 	SHELL_CMD(scan, NULL, "Scan for BLE devices.", cmd_ble_scan),
 	SHELL_CMD(save, NULL, "Save desired connections to shadow.",
 		  cmd_ble_save),
-	SHELL_CMD_ARG(conn, NULL, "<all | name | MAC> Connect to BLE device(s).",
-		      cmd_ble_conn, 2, 0),
-	SHELL_CMD_ARG(disc, NULL, "<all | name | MAC> Disconnect BLE device(s).",
-		      cmd_ble_disc, 2, 0),
-	SHELL_CMD_ARG(en, NULL, "<all | MAC [all | handle]> Enable "
-		      "notifications on BLE device(s).",
-		      cmd_ble_notif_en, 1, 2),
-	SHELL_CMD_ARG(dis, NULL, "<all | MAC [all | handle]> Disable "
-		      "notifications on BLE device(s).",
-		      cmd_ble_notif_dis, 1, 2),
+	SHELL_CMD(conn, &dynamic_ble_conn,
+		  "<all | name | MAC> Connect to BLE device(s).", NULL),
+	SHELL_CMD(disc, &dynamic_ble_disc,
+		  "<all | name | MAC> Disconnect BLE device(s).", NULL),
+	SHELL_CMD(en, &dynamic_ble_en,
+		  "<all | MAC [all | handle]> Enable "
+		  "notifications on BLE device(s).", NULL),
+	SHELL_CMD(dis, &dynamic_ble_dis,
+		  "<all | MAC [all | handle]> Disable "
+		  "notifications on BLE device(s).", NULL),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 SHELL_CMD_ARG_REGISTER(ble, &sub_ble, "Bluetooth commands", NULL, 0, 3);

@@ -156,7 +156,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		switch (desired_obj->valueint) {
 		case 0:
 			/* submit k_work to respond */
-			scan_start();
+			scan_start(false);
 			break;
 		case 1:
 			/* submit k_work to respond */

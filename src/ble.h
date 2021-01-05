@@ -34,7 +34,7 @@ struct ble_device_conn;
 void ble_init(void);
 void ble_add_to_whitelist(char *addr_str);
 void ble_remove_from_whitelist(char *addr_str);
-void scan_start(void);
+void scan_start(bool print_scan);
 int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type);
 int ble_subscribe_handle(char *ble_addr, uint16_t handle, uint8_t value_type);
 int ble_subscribe_all(char *ble_addr, uint8_t value_type);
@@ -48,6 +48,8 @@ void ble_clear_discover_inprogress();
 int device_discovery_send(struct ble_device_conn *conn_ptr);
 void update_shadow(char *ble_address, bool connecting, bool connected);
 struct ble_scanned_dev *get_scanned_device(unsigned int i);
+int get_num_scan_results(void);
+int get_num_scan_names(void);
 void ble_stop_activity(void);
 
 #endif /* _BLE_H_ */
