@@ -966,7 +966,10 @@ void main(void)
 	lg_printk("Ver:%s Built:%s\n", FW_REV_STRING, BUILT_STRING);
 	lg_printk("*************************************************\n\n");
 	k_sleep(K_SECONDS(5));
+
+#if defined(CONFIG_GATEWAY_SHELL)
 	cli_init();
+#endif
 
 	log_uart_pins();
 
