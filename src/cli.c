@@ -1222,7 +1222,7 @@ static int cmd_fota(const struct shell *shell, size_t argc, char **argv)
 	if (space) {
 		shell_print(shell, "mcuboot download detected");
 	}
-	int err = fota_download_start(host, path, sec_tag, apn, frag);
+	int err = fota_download_start(host, path, sec_tag, apn, frag, NULL);
 	if (err) {
 		shell_error(shell, "Error %d starting download", err);
 	}
