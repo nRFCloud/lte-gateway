@@ -355,7 +355,12 @@ void device_shutdown(bool reboot)
 		LOG_INF("Rebooting...");
 		k_sleep(K_SECONDS(1));
 
+#if defined(CONFIG_REBOOT)
 		sys_reboot(SYS_REBOOT_COLD);
+#else
+		LOG_ERR("sys_reboot not defined: "
+			"enable CONFIG_REBOOT and rebuild");
+#endif
 	} else {
 		LOG_INF("Power down.");
 		k_sleep(K_SECONDS(1));

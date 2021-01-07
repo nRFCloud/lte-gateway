@@ -331,6 +331,14 @@ void error_handler(enum error_type err_type, int err_code)
 		ui_led_set_pattern(UI_LED_ERROR_MODEM_REC, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_MODEM_RECOVERABLE: %d", err_code);
 		break;
+	case ERROR_MODEM_IRRECOVERABLE:
+		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
+		 * if there is a recoverable error.
+		 */
+		ui_led_set_pattern(UI_LED_ERROR_MODEM_IRREC, PWM_DEV_0);
+		LOG_ERR("Error of type ERROR_MODEM_IRRECOVERABLE: %d",
+			err_code);
+		break;
 	default:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 2, 3 and 4)
 		 * undefined error.
@@ -878,6 +886,9 @@ void handle_nrf_modem_lib_init_ret(void)
 
 	/* Handle return values relating to modem firmware update */
 	switch (ret) {
+	case 0:
+		/* Initialization successful, no action required. */
+		break;
 	case MODEM_DFU_RESULT_OK:
 		LOG_INF("MODEM UPDATE OK. Will run new firmware");
 #if defined(CONFIG_REBOOT)
@@ -902,7 +913,7 @@ void handle_nrf_modem_lib_init_ret(void)
 		/* All non-zero return codes other than DFU result codes are
 		 * considered irrecoverable and a reboot is needed.
 		 */
-		LOG_ERR("BSDlib initialization failed, error: %d", ret);
+		LOG_ERR("modem library initialization failed, error: %d", ret);
 		error_handler(ERROR_MODEM_IRRECOVERABLE, ret);
 
 		CODE_UNREACHABLE;
