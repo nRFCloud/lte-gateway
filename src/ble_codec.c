@@ -42,7 +42,14 @@ static bool first_chrc = true;
 #define CJADDITEMCS cJSON_AddItemToObjectCS
 #define CJADDREF cJSON_AddItemReferenceToObject
 #define CJADDREFCS cJSON_AddItemReferenceToObjectCS
-#define CJPRINT cJSON_PrintPreallocated
+
+#define CJPRINT(_a_, _b_, _c_, _d_) do { \
+	int _e_ = cJSON_PrintPreallocated((_a_), (_b_), (_c_), (_d_)); \
+	if (!_e_) { \
+		LOG_ERR("insufficient buffer size %d", (_c_)); \
+		goto cleanup; \
+	} \
+} while (0)
 
 #define CJCHK(_a_) do { \
 	if ((_a_) == NULL) { \
@@ -586,6 +593,54 @@ cleanup:
 	return ret;
 }
 
+int gateway_shadow_data_encode(char *buf, size_t len)
+{
+	int ret = -ENOMEM;
+	cJSON *root_obj = cJSON_CreateObject();
+	cJSON *state_obj = cJSON_CreateObject();
+	cJSON *reported_obj = cJSON_CreateObject();
+	cJSON *gateway_device = cJSON_CreateObject();
+	cJSON *service_info = cJSON_CreateObject();
+	cJSON *fota_arr = cJSON_CreateArray();
+
+	if ((root_obj == NULL) || (state_obj == NULL) ||
+	    (reported_obj == NULL) || (gateway_device == NULL) ||
+	    (service_info == NULL) || (fota_arr == NULL)) {
+		LOG_ERR("Error creating shadow data");
+		goto cleanup;
+	}
+
+	CJADDARRSTR(fota_arr, "APP");
+	CJADDARRSTR(fota_arr, "MODEM");
+	CJADDARRSTR(fota_arr, "BOOT");
+
+#if defined(CONFIG_NRF_CLOUD_FOTA)
+	CJADDREFCS(service_info, "fota_v2", fota_arr);
+	CJADDNULLCS(service_info, "fota_v1");
+#else
+	CJADDREFCS(service_info, "fota_v1", fota_arr);
+#endif
+	CJADDREFCS(gateway_device, "serviceInfo", service_info);
+	CJADDREFCS(reported_obj, "device", gateway_device);
+	CJADDREFCS(state_obj, "reported", reported_obj);
+	CJADDREFCS(root_obj, "state", state_obj);
+
+	CJPRINT(root_obj, buf, len, 0);
+	ret = 0;
+
+cleanup:
+	if (ret) {
+		LOG_ERR("In shadow cleanup: %d", ret);
+	}
+	cJSON_Delete(fota_arr);
+	cJSON_Delete(service_info);
+	cJSON_Delete(gateway_device);
+	cJSON_Delete(reported_obj);
+	cJSON_Delete(state_obj);
+	cJSON_Delete(root_obj);
+	return ret;
+}
+
 int device_shadow_data_encode(char *ble_address, bool connecting,
 			      bool connected, struct ble_msg *msg)
 {
@@ -597,30 +652,19 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 	cJSON *device = cJSON_CreateObject();
 	cJSON *status = cJSON_CreateObject();
 
-	cJSON *gateway_device = cJSON_CreateObject();
-	cJSON *service_info = cJSON_CreateObject();
-	cJSON *fota_arr = cJSON_CreateArray();
-
 	if ((root_obj == NULL) || (state_obj == NULL) ||
 	    (reported_obj == NULL) || (status_connections == NULL) ||
-	    (device == NULL) || (status == NULL) || (gateway_device == NULL) ||
-	    (service_info == NULL) || (fota_arr == NULL)) {
+	    (device == NULL) || (status == NULL)) {
+		LOG_ERR("Error creating shadow data");
 		goto cleanup;
 	}
-
-	CJADDARRSTR(fota_arr, "APP");
-	CJADDARRSTR(fota_arr, "MODEM");
-	CJADDARRSTR(fota_arr, "BOOT");
 
 	CJADDSTRCS(device, "id", ble_address);
 	CJADDBOOLCS(status, "connected", connected);
 	CJADDBOOLCS(status, "connecting", connecting);
 
-	CJADDREFCS(service_info, "fota_v1", fota_arr);
-	CJADDREFCS(gateway_device, "serviceInfo", service_info);
 	CJADDREFCS(device, "status", status);
 	CJADDREF(status_connections, ble_address, device);
-	CJADDREFCS(reported_obj, "device", gateway_device);
 	CJADDREFCS(reported_obj, "statusConnections", status_connections);
 	CJADDREFCS(state_obj, "reported", reported_obj);
 	CJADDREFCS(root_obj, "state", state_obj);
@@ -629,9 +673,6 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 	ret = 0;
 
 cleanup:
-	cJSON_Delete(fota_arr);
-	cJSON_Delete(service_info);
-	cJSON_Delete(gateway_device);
 	cJSON_Delete(status);
 	cJSON_Delete(device);
 	cJSON_Delete(status_connections);
@@ -774,7 +815,7 @@ static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 	if (properties & BT_GATT_CHRC_AUTH) {
 		CJADDBOOLCS(props, "authorizedSignedWrite", true);
 	}
-	if ((properties == 0) || ((properties & 
+	if ((properties == 0) || ((properties &
 		~(BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
 		  BT_GATT_CHRC_INDICATE | BT_GATT_CHRC_NOTIFY |
 		  BT_GATT_CHRC_WRITE_WITHOUT_RESP |

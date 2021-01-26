@@ -59,14 +59,21 @@ config CLOUD_WAIT_DURATION
 
 config CLOUD_FOTA_APP
 	bool "Enable firmware over-the-air upgrades for application"
-	depends on AWS_FOTA
+	depends on AWS_FOTA || NRF_CLOUD_FOTA
 	depends on DFU_TARGET_MCUBOOT
 	default y
 
 config CLOUD_FOTA_MODEM
 	bool "Enable firmware over-the-air upgrades for modem"
-	depends on AWS_FOTA
-	depends on DFU_TARGET_MODEM
+	depends on AWS_FOTA || NRF_CLOUD_FOTA
+	depends on DFU_TARGET_MODEM_DELTA
+	default y
+
+config CLOUD_FOTA_BOOT
+	bool "Enable firmware over-the-air upgrades for bootloader"
+	depends on AWS_FOTA || NRF_CLOUD_FOTA
+	depends on DFU_TARGET_MCUBOOT
+	depends on SECURE_BOOT
 	default y
 
 config CLOUD_CONNECT_ERR_REBOOT_S
@@ -179,6 +186,12 @@ config SHELL_PROMPT_SECURE
 	default "uart:~# "
 	help
 	  Displayed prompt name for UART backend once user has logged in.
+
+config SHELL_DEFAULT_PASSWORD
+	string "Factory-set initial password"
+       default "nordic"
+       help
+         User needs to type this to enter the shell and execute commands.
 
 config GATEWAY_DBG_CMDS
 	bool "Enable debugging commands"

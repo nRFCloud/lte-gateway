@@ -71,14 +71,16 @@ static uint16_t sub_value[BT_MAX_SUBSCRIBES];
 static uint8_t curr_subs;
 static int next_sub_index;
 
+static notification_cb_t notify_callback;
+
 struct rec_data_t {
 	void *fifo_reserved;
 	struct bt_gatt_subscribe_params sub_params;
 	struct bt_gatt_read_params read_params;
 	char addr_trunc[BT_ADDR_STR_LEN];
-	char data[256];
+	uint8_t data[256];
 	bool read;
-	uint8_t length;
+	uint16_t length;
 };
 
 K_FIFO_DEFINE(rec_fifo);
@@ -208,6 +210,11 @@ void ble_dm_data_add(struct bt_gatt_dm *dm)
 	}
 }
 
+void ble_register_notify_callback(notification_cb_t callback)
+{
+	notify_callback = callback;
+}
+
 /* Thread responsible for transferring ble data over MQTT */
 void send_notify_data(int unused1, int unused2, int unused3)
 {
@@ -269,7 +276,7 @@ void send_notify_data(int unused1, int unused2, int unused3)
 				}
 
 			} else {
-				LOG_INF("Notify Addr %s Handle %d",
+				LOG_DBG("Notify Addr %s Handle %d",
 					log_strdup(rx_data->addr_trunc),
 					rx_data->sub_params.value_handle);
 
@@ -277,7 +284,8 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					rx_data->sub_params.value_handle, uuid,
 					connected_ptr);
 				if (err) {
-					LOG_ERR("Unable to find connection: %d", err);
+					LOG_ERR("Unable to find connection: %d",
+						err);
 					goto cleanup;
 				}
 
@@ -288,6 +296,23 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					LOG_ERR("Unable to generate path: %d",
 						err);
 					goto cleanup;
+				}
+
+				LOG_HEXDUMP_DBG(rx_data->data, rx_data->length,
+						"notify");
+
+				if (notify_callback) {
+					err = notify_callback(rx_data->addr_trunc,
+							      uuid,
+							      rx_data->data,
+							      rx_data->length);
+					if (err) {
+						/* callback should return 0
+						 * if it did not process the
+						 * data
+						 */
+						goto cleanup;
+					}
 				}
 
 				err = device_value_changed_encode(
@@ -440,7 +465,7 @@ static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 	return ret;
 }
 
-void gatt_read(char *ble_addr, char *chrc_uuid)
+int gatt_read(char *ble_addr, char *chrc_uuid)
 {
 	int err;
 	static struct bt_gatt_read_params params;
@@ -449,14 +474,15 @@ void gatt_read(char *ble_addr, char *chrc_uuid)
 	struct ble_device_conn *connected_ptr;
 	uint16_t handle;
 
-	ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	if (err) {
+		return err;
+	}
 
 	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
 					      connected_ptr);
-
 	if (err) {
-		LOG_ERR("Could not find handle");
-		return;
+		return err;
 	}
 
 	params.handle_count = 1;
@@ -466,17 +492,18 @@ void gatt_read(char *ble_addr, char *chrc_uuid)
 	err = bt_addr_le_from_str(ble_addr, "random", &addr);
 	if (err) {
 		LOG_ERR("Address from string failed (err %d)", err);
+		return err;
 	}
 
 	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 	if (conn == NULL) {
 		LOG_ERR("Null Conn object (err)");
-		return;
+		return -EINVAL;
 	}
 
-	bt_gatt_read(conn, &params);
-
+	err = bt_gatt_read(conn, &params);
 	bt_conn_unref(conn);
+	return err;
 }
 
 static void on_sent(struct bt_conn *conn, uint8_t err,
@@ -492,7 +519,8 @@ static void on_sent(struct bt_conn *conn, uint8_t err,
 	LOG_DBG("Sent Data of Length: %d", length);
 }
 
-void gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data, uint16_t data_len)
+int gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data,
+	       uint16_t data_len, bt_gatt_write_func_t cb)
 {
 	int err;
 	struct bt_conn *conn;
@@ -501,40 +529,89 @@ void gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data, uint16_t data_le
 	uint16_t handle;
 	static struct bt_gatt_write_params params;
 
-	ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	if (err) {
+		return err;
+	}
 
-	ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid, connected_ptr);
+	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
+					      connected_ptr);
+	if (err) {
+		return err;
+	}
 
 	err = bt_addr_le_from_str(ble_addr, "random", &addr);
 	if (err) {
 		LOG_ERR("Address from string failed (err %d)", err);
+		return err;
 	}
 
 	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 	if (conn == NULL) {
-		LOG_ERR("Null Conn object (err)\n");
-		return;
+		LOG_ERR("Null Conn object (err)");
+		return -EINVAL;
 	}
 
 	for (int i = 0; i < data_len; i++) {
 		LOG_DBG("Writing: %x", data[i]);
 	}
 
-	LOG_INF("Writing to addr: %s to chrc %s with handle %d\n:",
+	LOG_DBG("Writing to addr: %s to chrc %s with handle %d",
 		log_strdup(ble_addr), log_strdup(chrc_uuid), handle);
+	LOG_HEXDUMP_DBG(data, data_len, "Data to write");
 
-	params.func = on_sent;
+	params.func = cb ? cb : on_sent;
 	params.handle = handle;
 	params.offset = 0;
 	params.data = data;
 	params.length = data_len;
 
-	bt_gatt_write(conn, &params);
-
+	err = bt_gatt_write(conn, &params);
 	bt_conn_unref(conn);
+	return err;
+}
 
-/*  TODO: Add function for write without response. */
-/*  bt_gatt_write_without_response(conn, handle, data, data_len, false); */
+int gatt_write_without_response(char *ble_addr, char *chrc_uuid, uint8_t *data,
+				uint16_t data_len)
+{
+	int err;
+
+	struct bt_conn *conn;
+	bt_addr_le_t addr;
+	struct ble_device_conn *connected_ptr;
+	uint16_t handle;
+	/* static struct bt_gatt_write_params params; */
+
+	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
+					      connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	err = bt_addr_le_from_str(ble_addr, "random", &addr);
+	if (err) {
+		LOG_ERR("Address from string failed (err %d)", err);
+		return err;
+	}
+
+	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
+	if (conn == NULL) {
+		LOG_ERR("Null Conn object");
+		return -EINVAL;
+	}
+
+	LOG_DBG("Writing w/o resp to addr: %s to chrc %s with handle %d",
+		log_strdup(ble_addr), log_strdup(chrc_uuid), handle);
+	LOG_HEXDUMP_DBG(data, data_len, "Data to write");
+
+	err = bt_gatt_write_without_response(conn, handle, data, data_len,
+					     false);
+	return err;
 }
 
 static uint8_t on_received(struct bt_conn *conn,
@@ -649,7 +726,8 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 		addr.type = 0;
 		conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 		if (conn == NULL) {
-			LOG_ERR("Null Conn object (err %d)", err);
+			LOG_ERR("Null Conn object");
+			err = -EINVAL;
 			goto end;
 		}
 	}
@@ -903,6 +981,7 @@ uint8_t ble_discover(char *ble_addr)
 				bt_conn_disconnect(conn, 0x16);
 
 				bt_conn_unref(conn);
+				ble_conn_set_disconnected(ble_addr);
 				return err;
 			}
 			discover_in_progress = true;
@@ -947,12 +1026,29 @@ uint8_t disconnect_device_by_addr(char *ble_addr)
 	return err;
 }
 
-void update_shadow(char *ble_address, bool connecting, bool connected)
+int setup_gw_shadow(void)
 {
+	int err;
+
+	err = gateway_shadow_data_encode(output.buf, output.len);
+	if (!err) {
+		shadow_publish(output.buf);
+	}
+	return err;
+}
+
+int update_shadow(char *ble_address, bool connecting, bool connected)
+{
+	int err;
+
 	LOG_DBG("connecting=%u, connected=%u",
 		connecting, connected);
-	device_shadow_data_encode(ble_address, connecting, connected, &output);
-	shadow_publish(output.buf);
+	err = device_shadow_data_encode(ble_address, connecting, connected,
+					&output);
+	if (!err) {
+		shadow_publish(output.buf);
+	}
+	return err;
 }
 
 void auto_conn_start_work_handler(struct k_work *work)
@@ -1043,7 +1139,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	 * shadow; it will likely reconnect shortly
 	 */
 	if (reason != BT_HCI_ERR_REMOTE_USER_TERM_CONN) {
-		update_shadow(addr_trunc, false, false);
+		(void)update_shadow(addr_trunc, false, false);
 		ble_conn_set_disconnected(addr_trunc);
 		LOG_INF("Disconnected: %s (reason 0x%02x)", log_strdup(addr),
 			reason);
@@ -1115,7 +1211,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 		if (!(strncasecmp(addr_str,
 				  ble_scanned_devices[j].addr,
 				  BT_ADDR_LE_DEVICE_LEN))) {
-			return; /* no need to continue; we saw this */ 
+			return; /* no need to continue; we saw this */
 		}
 	}
 

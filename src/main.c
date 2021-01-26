@@ -47,6 +47,7 @@
 #include "ble.h"
 #include "config.h"
 #include "gateway.h"
+#include "peripheral_dfu.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
@@ -138,7 +139,6 @@ static atomic_val_t cloud_association =
 
 /* Structures for work */
 static struct k_delayed_work cloud_reboot_work;
-static struct k_delayed_work cycle_cloud_connection_work;
 static struct k_delayed_work cycle_cloud_connection_work;
 static struct k_delayed_work cloud_connect_work;
 static struct k_work no_sim_go_offline_work;
@@ -631,7 +631,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		LOG_INF("CLOUD_EVT_READY");
 		ui_led_set_pattern(UI_CLOUD_CONNECTED, PWM_DEV_0);
 
-#if defined(CONFIG_BOOTLOADER_MCUBOOT)
+#if defined(CONFIG_BOOTLOADER_MCUBOOT) && !defined(CONFIG_NRF_CLOUD_FOTA)
 		/* Mark image as good to avoid rolling back after update */
 		boot_write_img_confirmed();
 #endif
@@ -656,8 +656,10 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		on_pairing_done();
 		break;
 	case CLOUD_EVT_FOTA_DONE:
-		lte_connection_status = false;
 		LOG_INF("CLOUD_EVT_FOTA_DONE");
+		lte_connection_status = false;
+		LOG_INF("Rebooting to complete FOTA...");
+		k_sleep(K_SECONDS(2));
 #if defined(CONFIG_LTE_LINK_CONTROL)
 		lte_lc_power_off();
 #endif
@@ -754,6 +756,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
+		setup_gw_shadow();
 
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
@@ -839,6 +842,11 @@ static void cloud_api_init(void)
 			ret);
 		cloud_error_handler(ret);
 	}
+
+	ret = peripheral_dfu_init();
+	if (ret) {
+		LOG_ERR("Error initializing BLE DFU: %d", ret);
+	}
 }
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
@@ -881,7 +889,7 @@ connected:
 
 void handle_nrf_modem_lib_init_ret(void)
 {
-#if defined(CONFIG_NRF_MODEM_LIB)
+#if defined(CONFIG_NRF_MODEM_LIB) && !defined(CONFIG_NRF_CLOUD_FOTA)
 	int ret = nrf_modem_lib_get_init_ret();
 
 	/* Handle return values relating to modem firmware update */
@@ -964,7 +972,7 @@ static void log_uart_pins(void)
 void lg_printk(char *fmt, ...)
 {
 	va_list args;
-	
+
 	va_start(args, fmt);
 	log_printk(fmt, args);
 	va_end(args);
