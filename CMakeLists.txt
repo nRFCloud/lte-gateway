@@ -42,6 +42,7 @@ zephyr_library_include_directories(
 src/ui
 src/watchdog
 src/flash
+src/dfu
 src
 )
 
