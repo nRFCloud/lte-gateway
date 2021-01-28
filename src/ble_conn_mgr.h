@@ -82,5 +82,6 @@ int ble_conn_mgr_rediscover(char *addr);
 struct ble_device_conn *get_connected_device(unsigned int i);
 int get_num_connected(void);
 struct desired_conn *get_desired_array(int *array_size);
+bool ble_conn_mgr_is_addr_connected(char *addr);
 
 #endif

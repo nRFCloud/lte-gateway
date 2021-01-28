@@ -4,6 +4,7 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 #include <settings/settings.h>
+#include <nrf_cloud_fota.h>
 
 #include "ble_conn_mgr.h"
 #include "ble_codec.h"
@@ -34,9 +35,11 @@ static void process_connection(int i)
 	if (!dev->added_to_whitelist) {
 		ble_add_to_whitelist(dev->addr);
 		dev->added_to_whitelist = true;
-		update_shadow(dev->addr, true, false);
-		dev->shadow_updated = true;
-		LOG_INF("Device added to whitelist.");
+		err = update_shadow(dev->addr, true, false);
+		if (!err) {
+			dev->shadow_updated = true;
+			LOG_INF("Device added to whitelist.");
+		}
 	}
 
 	/* Connected. Do discovering if not discovered or currently
@@ -63,6 +66,15 @@ static void process_connection(int i)
 		device_discovery_send(&connected_ble_devices[i]);
 
 		irq_unlock(lock);
+
+		bt_addr_t ble_id;
+
+		err = bt_addr_from_str(connected_ble_devices[i].addr,
+				       &ble_id);
+		if (!err) {
+			LOG_INF("Checking for BLE update...");
+			nrf_cloud_fota_ble_update_check(&ble_id);
+		}
 	}
 }
 
@@ -454,6 +466,16 @@ int ble_conn_mgr_get_conn_by_addr(char *addr, struct ble_device_conn **conn_ptr)
 
 }
 
+bool ble_conn_mgr_is_addr_connected(char *addr)
+{
+	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
+		if (!strcmp(addr, connected_ble_devices[i].addr)) {
+			return connected_ble_devices[i].connected;
+		}
+	}
+	return false;
+}
+
 int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 				 struct ble_device_conn *conn_ptr)
 {
@@ -504,7 +526,7 @@ int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
 	memset(uuid, 0, BT_UUID_STR_LEN);
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		struct uuid_handle_pair *uuid_handle = 
+		struct uuid_handle_pair *uuid_handle =
 			&conn_ptr->uuid_handle_pairs[i];
 
 		if (handle == uuid_handle->handle) {
@@ -559,7 +581,7 @@ int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 		}
 	}
 
-	LOG_ERR("Handle Not Found");
+	LOG_ERR("Handle Not Found for UUID: %s", log_strdup(uuid));
 	return 1;
 }
 

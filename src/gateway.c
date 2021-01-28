@@ -55,6 +55,7 @@ K_FIFO_DEFINE(cloud_data_fifo);
 void cloud_data_process(int unused1, int unused2, int unused3)
 {
 	struct k_mutex lock;
+	int ret;
 
 	k_mutex_init(&lock);
 
@@ -73,15 +74,28 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #if defined(QUEUE_CHAR_READS)
 			else if (cloud_data->read) {
-				gatt_read(cloud_data->addr, cloud_data->uuid);
+				ret = gatt_read(cloud_data->addr,
+						cloud_data->uuid);
+				if (ret) {
+					LOG_ERR("Error on gatt_read(%s, %s): %d",
+						log_strdup(cloud_data->addr),
+						log_strdup(cloud_data->uuid),
+						ret);
+				}
 			}
 #endif
 #if defined(QUEUE_CHAR_WRITES)
 			else if (cloud_data->write) {
-				gatt_write(cloud_data->addr, cloud_data->uuid,
-					   cloud_data->data,
-					   cloud_data->data_len);
-
+				ret = gatt_write(cloud_data->addr,
+						 cloud_data->uuid,
+						 cloud_data->data,
+						 cloud_data->data_len, NULL);
+				if (ret) {
+					LOG_ERR("Error on gatt_write(%s, %s): %d",
+						log_strdup(cloud_data->addr),
+						log_strdup(cloud_data->uuid),
+						ret);
+				}
 			}
 #endif
 			k_free(cloud_data);
@@ -198,8 +212,14 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
 #else
-			gatt_read(ble_address->valuestring,
-				  chrc_uuid->valuestring);
+			ret = gatt_read(ble_address->valuestring,
+					chrc_uuid->valuestring);
+			if (ret) {
+				LOG_ERR("Error on gatt_read(%s, %s): %d",
+					log_strdup(ble_address->valuestring),
+					log_strdup(chrc_uuid->valuestring),
+					ret);
+			}
 #endif
 		}
 
@@ -295,9 +315,15 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
 #else
-			gatt_write(ble_address->valuestring,
-				   chrc_uuid->valuestring,
-				   value_buf, value_len);
+			ret = gatt_write(ble_address->valuestring,
+					 chrc_uuid->valuestring,
+					 value_buf, value_len, NULL);
+			if (ret) {
+				LOG_ERR("Error on gatt_write(%s, %s): %d",
+					log_strdup(ble_address->valuestring),
+					log_strdup(chrc_uuid->valuestring),
+					ret);
+			}
 #endif
 		}
 

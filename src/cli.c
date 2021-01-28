@@ -32,11 +32,13 @@
 #include "ble.h"
 #include "ble_codec.h"
 #include "ble_conn_mgr.h"
+#include "peripheral_dfu.h"
 #include "gateway.h"
 
 LOG_MODULE_REGISTER(cli, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
-#define DEFAULT_PASSWORD "alThazar12"
+#define DEFAULT_PASSWORD CONFIG_SHELL_DEFAULT_PASSWORD
+
 /* disable for now -- breaks BLE HCI after used */
 #define PRINT_CTLR_INFO_ENABLED 0
 
@@ -49,10 +51,13 @@ enum ble_cmd_type {
 	BLE_CMD_NAME
 };
 
+extern void heap_stats(void);
+
 extern struct modem_param_info modem_param;
 static char response_buf[CONFIG_AT_CMD_RESPONSE_MAX_LEN];
 
 static void set_at_prompt(const struct shell *shell, bool at_mode);
+void peripheral_dfu_set_test_mode(bool test);
 
 char *rem_eol(const char *s)
 {
@@ -201,18 +206,28 @@ void print_modem_info(const struct shell *shell)
 		} else if (net->nbiot_mode.value == 1) {
 			shell_print(shell, "Mode: \t\tNB-IoT");
 		}
-		shell_print(shell, "Cell ID: \t%ld", 
+		shell_print(shell, "Cell ID: \t%ld",
 			    (long)net->cellid_dec);
 
 		char *str = net->date_time.value_string;
 		struct timespec now;
 		struct tm *tm;
+		char *atime;
 
 		shell_print(shell, "Net date/time: \t%s "
 			"DST %d TZ %ld",
 			log_strdup(str), _daylight, _timezone);
 		clock_gettime(CLOCK_REALTIME, &now);
 		tm = localtime(&now.tv_sec);
+		if (tm == NULL) {
+			shell_error(shell, "could not get local time");
+			return;
+		}
+		atime = asctime(tm);
+		if (atime == NULL) {
+			shell_error(shell, "could not get asctime");
+			return;
+		}
 		shell_print(shell, "Time now: \t%s", asctime(tm));
 	}
 #endif
@@ -255,11 +270,14 @@ void print_connection_status(const struct shell *shell)
 static void print_cloud_info(const struct shell *shell)
 {
 	char stage[8];
+	char tenant_id[40];
 
 	nct_gw_get_stage(stage, sizeof(stage));
+	nct_gw_get_tenant_id(tenant_id, sizeof(tenant_id));
 	print_connection_status(shell);
 
 	shell_print(shell, "nrfcloud stage: \t%s", stage);
+	shell_print(shell, "nrfcloud tenant id: \t%s", tenant_id);
 	shell_print(shell, "nrfcloud endpoint: \t%s", CONFIG_NRF_CLOUD_HOST_NAME);
 }
 
@@ -576,15 +594,15 @@ static enum ble_cmd_type get_cmd_type(char *arg)
 }
 
 /* This dynamic command helper is called repeatedly by the shell when
- * the user wants command completion which lists possible MAC addresses. 
+ * the user wants command completion which lists possible MAC addresses.
  * It calls this until it returns NULL.
- * 
+ *
  * The first for loop returns all the devices we are already supposed to
  * connect to, because they're in the shadow's desiredConnections array.
  * The second nested for loop effectively appends to that list any scan
  * results which are not also devices we should connect with (so those
  * devices are not listed twice).
- * 
+ *
  * This would happen if the user used the CLI to scan for advertising
  * devices with 'ble scan', then used 'ble conn' to connect to one
  * (which temporarily adds this new device to the desiredConnections
@@ -594,7 +612,7 @@ static enum ble_cmd_type get_cmd_type(char *arg)
  * Often, the scan results are empty, and there is just a short list
  * of desired connections, so the second loop does nothing.
  */
-static const char *get_mac_addr(size_t idx)
+static const char *get_mac_addr(size_t idx, bool all)
 {
 	unsigned int i;
 	unsigned int j;
@@ -612,6 +630,10 @@ static const char *get_mac_addr(size_t idx)
 			return con->addr;
 		}
 		count++;
+	}
+
+	if (!all) {
+		return NULL;
 	}
 
 	for (i = 0; i < MAX_SCAN_RESULTS; i++) {
@@ -678,7 +700,7 @@ static const char *get_cmd_param(size_t idx)
 		return get_device_name(idx - 1);
 	}
 	/* then any MAC addresses */
-	return get_mac_addr(idx - 1 - get_num_scan_names());
+	return get_mac_addr(idx - 1 - get_num_scan_names(), true);
 }
 
 uint32_t get_log_module_level(const struct shell *shell, const char *name)
@@ -714,7 +736,7 @@ static int cmd_info_list(const struct shell *shell, size_t argc, char **argv)
 	const char *addr;
 
 	for (idx = 0;; idx++) {
-		addr = get_mac_addr(idx);
+		addr = get_mac_addr(idx, true);
 		if (addr) {
 			shell_print(shell, "%zd. %s", idx, addr);
 		} else {
@@ -729,7 +751,7 @@ static int cmd_info_list(const struct shell *shell, size_t argc, char **argv)
 
 static void get_dynamic_addr(size_t idx, struct shell_static_entry *entry)
 {
-	entry->syntax = get_mac_addr(idx);
+	entry->syntax = get_mac_addr(idx, true);
 
 	if (entry->syntax == NULL) {
 		return;
@@ -792,6 +814,7 @@ static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 	print_fw_info(shell);
+	heap_stats();
 	return 0;
 }
 
@@ -847,6 +870,16 @@ static int cmd_info_irq(const struct shell *shell, size_t argc,
 	ARG_UNUSED(argv);
 
 	print_irq_info(shell);
+	return 0;
+}
+
+static int cmd_ble_test(const struct shell *shell, size_t argc, char **argv)
+{
+	static bool test_mode = true;
+
+	shell_print(shell, "Setting BLE FOTA test mode to %u", test_mode);
+	peripheral_dfu_set_test_mode(test_mode);
+	test_mode = !test_mode;
 	return 0;
 }
 
@@ -1193,16 +1226,16 @@ static int cmd_shutdown(const struct shell *shell, size_t argc, char **argv)
 }
 
 /*
-example: 
+example:
 fota firmware.nrfcloud.com 3c7003c6-45a0-4a74-9023-1e006ceeb835/APP*30f6ce17*1.4.0/app_update.bin
 */
 static int cmd_fota(const struct shell *shell, size_t argc, char **argv)
 {
 	char *host = argv[1];
 	char *path = argv[2];
-	int sec_tag = -1;
+	int sec_tag = CONFIG_NRF_CLOUD_SEC_TAG;
 	char *apn = NULL;
-	size_t frag = 0;
+	size_t frag = CONFIG_NRF_CLOUD_FOTA_DOWNLOAD_FRAGMENT_SIZE;
 
 	if (argc > 3) {
 		sec_tag = atoi(argv[3]);
@@ -1228,6 +1261,89 @@ static int cmd_fota(const struct shell *shell, size_t argc, char **argv)
 	}
 	return 0;
 }
+
+/*
+example:
+ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*f1078fc9*2.2.0/app_thingy_s132.bin 155272 1 2.2.0
+ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*56693cf8*2.2.0/app_thingy_s132dat.bin 135 1 2.2.0
+ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*f15b85a8*s132/sd_bl.bin 153344 0 s132
+ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*3fb54637*s132/sd_bl_dat.bin 139 1 s132
+*/
+static int cmd_ble_fota(const struct shell *shell, size_t argc, char **argv)
+{
+	char *addr = argv[0];
+	char *host = argv[1];
+	char *path = argv[2];
+	int size = 0;
+	bool init_packet = true;
+	char *ver = "1";
+	uint32_t crc = 0;
+	int sec_tag = -1;
+	char *apn = NULL;
+	size_t frag = 0;
+
+	if (argc > 3) {
+		size = atoi(argv[3]);
+	}
+	if (argc > 4) {
+		init_packet = atoi(argv[4]) != 0;
+	}
+	if (argc > 5) {
+		ver = argv[5];
+	}
+	if (argc > 6) {
+		crc = atoi(argv[6]);
+	}
+	if (argc > 7) {
+		sec_tag = atoi(argv[7]);
+	}
+	if (argc > 8) {
+		frag = atoll(argv[8]);
+	}
+	if (argc > 9) {
+		apn = argv[9];
+	}
+
+	shell_print(shell, "starting BLE DFU to addr:%s, from host:%s, "
+			   "path:%s, size:%d, final:%d, ver:%s, crc:%u, "
+			   "sec_tag:%d, apn:%s, frag_size:%zd",
+			   addr, host, path, size, init_packet, ver, crc,
+			   sec_tag, apn ? apn : "<n/a>", frag);
+
+	/* set parameters for BLE update */
+	int err;
+
+	err = peripheral_dfu_config(addr, size, ver, crc, init_packet, true);
+	if (err) {
+		shell_error(shell, "Error %d starting peripheral DFU", err);
+	} else {
+		err = peripheral_dfu_start(host, path, sec_tag, apn, frag);
+		if (err) {
+			shell_error(shell, "Error %d starting download", err);
+		}
+	}
+	return 0;
+}
+
+static void get_dynamic_ble_fota(size_t idx, struct shell_static_entry *entry)
+{
+	/* build dynamic list of mac addresses of only devices we have
+	 * connected with (not scan results too)
+	 */
+	entry->syntax = get_mac_addr(idx, false);
+
+	if (entry->syntax == NULL) {
+		return;
+	}
+
+	entry->handler = cmd_ble_fota;
+	entry->subcmd = NULL;
+	entry->help = DYNAMIC_PARAM_HELP;
+	entry->args.mandatory = 5;
+	entry->args.optional = 5;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_fota, get_dynamic_ble_fota);
 
 int check_passwd(char *passwd)
 {
@@ -1366,6 +1482,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
 	SHELL_CMD(dis, &dynamic_ble_dis,
 		  "<all | MAC [all | handle]> Disable "
 		  "notifications on BLE device(s).", NULL),
+       SHELL_CMD(fota, &dynamic_ble_fota,
+		 "<addr> <host> <path> <size> <final> "
+		 "[ver] [crc] [sec_tag] [frag_size] [apn] "
+		  "BLE firmware over-the-air update.", NULL),
+	SHELL_CMD(test, NULL, "Set BLE FOTA download test mode.", cmd_ble_test),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 SHELL_CMD_ARG_REGISTER(ble, &sub_ble, "Bluetooth commands", NULL, 0, 3);
