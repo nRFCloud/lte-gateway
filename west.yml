@@ -12,7 +12,7 @@ manifest:
       #remote: nrfcloud
       #revision: gw-master
       remote: origin
-      revision: feature-gw-ble-dfu
+      revision: feature-misc-improvements
       import: true
   self:
     path: lte-gateway

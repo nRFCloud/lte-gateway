@@ -1452,7 +1452,7 @@ static void ble_ready(int err)
 	bt_conn_cb_register(&conn_callbacks);
 }
 
-void ble_init(void)
+int ble_init(void)
 {
 	int err;
 
@@ -1460,11 +1460,13 @@ void ble_init(void)
 	err = bt_enable(ble_ready);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)", err);
-		return;
+		return err;
 	}
 
 	for (int i = 0; i < MAX_SCAN_RESULTS; i++) {
 		memset(ble_scanned_devices[i].name, 0,
 		       sizeof(ble_scanned_devices[1].name));
 	}
+
+	return 0;
 }

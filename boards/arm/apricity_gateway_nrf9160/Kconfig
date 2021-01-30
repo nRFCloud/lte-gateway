@@ -23,3 +23,11 @@ config BOARD_NRF52840_GPIO_RESET_PIN
 	depends on BOARD_NRF52840_GPIO_RESET
 	help
 	  GPIO pin on the nRF9160 used to reset the nRF52840.
+
+config BOARD_NRF52840_GPIO_BOOT_SELECT_PIN
+	int "Boot select pin"
+	default 5
+	depends on BOARD_NRF52840_GPIO_RESET
+	help
+	  GPIO pin on the nrf9160 used to switch nrf52840 to its boot-
+	  loader.  This must be held for a period after releasing reset.

@@ -42,6 +42,7 @@
 
 #include "ui.h"
 #include <modem/at_cmd.h>
+#include "nrf_cloud_transport.h"
 #include "watchdog.h"
 #include "ble_conn_mgr.h"
 #include "ble.h"
@@ -92,6 +93,9 @@ defined(CONFIG_NRF_CLOUD_PROVISION_CERTIFICATES)
  * disconnect and reconnect if association was not completed.
  */
 #define CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS K_MINUTES(5)
+
+/* Wait forever for nrf52840 to reboot after user updates it over USB */
+#define WAIT_BOOT_TIMEOUT_MS -1
 
 /* uncomment below to help with diagnosing UART DTS issues */
 /* #define DEBUG_UART_PINS */
@@ -168,6 +172,7 @@ struct modem_param_info modem_param;
 #endif
 
 enum error_type {
+	ERROR_BLE,
 	ERROR_CLOUD,
 	ERROR_MODEM_RECOVERABLE,
 	ERROR_MODEM_IRRECOVERABLE,
@@ -317,6 +322,10 @@ void error_handler(enum error_type err_type, int err_code)
 	sys_reboot(0);
 #else
 	switch (err_type) {
+	case ERROR_BLE:
+		ui_led_set_pattern(UI_BLE_ERROR, PWM_DEV_1);
+		LOG_ERR("Error of type ERROR_BLE: %d", err_code);
+		break;
 	case ERROR_CLOUD:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 4, 2 and 3)
 		 * if there is an application error.
@@ -561,6 +570,13 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 		ui_led_set_pattern(UI_CLOUD_PAIRING, PWM_DEV_0);
 		LOG_INF("Add device to cloud account.");
 		LOG_INF("Waiting for cloud association...");
+
+		/* clear sessions to ensure devices switching accounts
+		 * will start on the new account with full topic
+		 * subscriptions
+		 */
+		LOG_INF("Clearing persistent sessions...");
+		save_session_state(0);
 
 		ble_conn_mgr_init();
 		ble_conn_mgr_clear_desired(true);
@@ -941,6 +957,50 @@ static void no_sim_go_offline(struct k_work *work)
 #endif /* CONFIG_NRF_MODEM_LIB */
 }
 
+static void starting_button_handler(void)
+{
+#if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+	/* the active board file need to include the functions:
+	 * nrf52840_reset_to_mcuboot() and nrf52840_wait_boot_low()
+	 */
+	if (ui_button_is_active(1)) {
+		printk("BOOT BUTTON HELD\n");
+		ui_led_set_pattern(UI_BLE_BUTTON, PWM_DEV_1);
+		while (ui_button_is_active(1)) {
+			k_sleep(K_MSEC(500));
+		}
+		printk("BOOT BUTTON RELEASED\n");
+		if (!is_boot_selected()) {
+			printk("Boot held after reset but not long enough"
+			       " to select the nRF52840 bootloader!\n");
+			ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
+		} else {
+			/* User wants to update the 52840 */
+			nrf52840_reset_to_mcuboot();
+
+			/* wait forever for signal from other side so we can
+			 * continue
+			 */
+			int err;
+
+			err = nrf52840_wait_boot_complete(WAIT_BOOT_TIMEOUT_MS);
+			if (err == 0) {
+				ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
+				k_sleep(K_SECONDS(1));
+				printk("nRF52840 update complete\n");
+			} else {
+				/* unable to monitor; just halt */
+				printk("Error waiting for nrf52840 reboot: %d\n",
+				       err);
+				for (;;) {
+					k_sleep(K_MSEC(500));
+				}
+			}
+		}
+	}
+#endif
+}
+
 static void log_uart_pins(void)
 {
 #if defined(DEBUG_UART_PINS)
@@ -980,20 +1040,17 @@ void lg_printk(char *fmt, ...)
 
 void main(void)
 {
+	int err;
+
 	lg_printk("\n*************************************************\n");
 	lg_printk("nRF Cloud Gateway Starting Up...\n");
 	lg_printk("Ver:%s Built:%s\n", FW_REV_STRING, BUILT_STRING);
 	lg_printk("*************************************************\n\n");
-	k_sleep(K_SECONDS(5));
-	cli_init();
-
 	log_uart_pins();
 
 #if defined(CONFIG_USE_UI_MODULE)
 	ui_init(power_button_handler);
 #endif
-
-	ble_init();
 
 	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
 		LOG_INF("Loading settings");
@@ -1004,6 +1061,18 @@ void main(void)
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
 		       CONFIG_APPLICATION_WORKQUEUE_PRIORITY);
 	k_thread_name_set(&application_work_q.thread, "appworkq");
+
+	starting_button_handler();
+
+	k_sleep(K_SECONDS(2));
+	cli_init();
+
+	err = ble_init();
+	if (err) {
+		error_handler(ERROR_BLE, err);
+	} else {
+		ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
+	}
 
 	if (IS_ENABLED(CONFIG_WATCHDOG)) {
 		watchdog_init_and_start(&application_work_q);

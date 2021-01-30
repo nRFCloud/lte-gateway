@@ -10,4 +10,10 @@ void cli_init(void);
 bool get_lte_connection_status(void);
 bool get_cloud_connection_status(void);
 
+#if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+/* functions defined in the board's .c file */
+int nrf52840_reset_to_mcuboot(void);
+int nrf52840_wait_boot_complete(int timeout_ms);
+#endif
+
 #endif
