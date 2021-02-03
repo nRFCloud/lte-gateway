@@ -22,6 +22,9 @@ static struct desired_conn desired_connections[CONFIG_BT_MAX_CONN];
 #define CONN_MGR_STACK_SIZE 3072
 #define CONN_MGR_PRIORITY 1
 
+static struct uuid_handle_pair *find_pair_by_handle(uint16_t handle,
+					      struct ble_device_conn *conn_ptr,
+					      int *index);
 
 static void process_connection(int i)
 {
@@ -109,6 +112,8 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 static void ble_conn_mgr_conn_reset(struct ble_device_conn
 					*dev)
 {
+	struct uuid_handle_pair *uuid_handle;
+
 	if (!dev->free) {
 		if (num_connected) {
 			num_connected--;
@@ -122,7 +127,17 @@ static void ble_conn_mgr_conn_reset(struct ble_device_conn
 	dev->added_to_whitelist = false;
 	dev->encode_discovered = false;
 	dev->shadow_updated = false;
-	dev->num_pairs = 0;
+
+	/* free in backwards order to try to reduce fragmentation */
+	while (dev->num_pairs) {
+		uuid_handle = dev->uuid_handle_pairs[dev->num_pairs - 1];
+		if (uuid_handle != NULL) {
+			dev->uuid_handle_pairs[dev->num_pairs - 1] = NULL;
+			k_free(uuid_handle);
+		}
+		dev->num_pairs--;
+	}
+
 	LOG_INF("Conn Removed to %s", log_strdup(dev->addr));
 }
 
@@ -268,63 +283,64 @@ bool ble_conn_mgr_enabled(char *addr)
 	return true;
 }
 
-int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr, uint16_t handle,
-				char *path, bool ccc)
+int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
+			       uint16_t handle, char *path, bool ccc)
 {
-	int err = 0;
 	char path_str[BT_MAX_PATH_LEN];
 	char service_uuid[BT_UUID_STR_LEN];
 	char ccc_uuid[BT_UUID_STR_LEN];
 	char chrc_uuid[BT_UUID_STR_LEN];
 	uint8_t path_depth = 0;
-	bool found = false;
+	struct uuid_handle_pair *uuid_handle;
+	int i;
 
 	path_str[0] = '\0';
+	path[0] = '\0';
 
 	LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
-	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		struct uuid_handle_pair *uuid_handle =
-			&conn_ptr->uuid_handle_pairs[i];
+	uuid_handle = find_pair_by_handle(handle, conn_ptr, &i);
+	if (uuid_handle == NULL) {
+		LOG_ERR("path not generated; handle %u not found for addr %s",
+			handle, log_strdup(conn_ptr->addr));
+		return -ENXIO;
+	}
 
-		if (handle != uuid_handle->handle) {
+	path_depth = uuid_handle->path_depth;
+	LOG_DBG("Path Depth %d", path_depth);
+
+	get_uuid_str(uuid_handle, chrc_uuid, BT_UUID_STR_LEN);
+
+	uuid_handle = conn_ptr->uuid_handle_pairs[i + 1];
+	if (uuid_handle == NULL) {
+		LOG_ERR("path not generated; handle after %u "
+			"not found for addr %s",
+			handle, log_strdup(conn_ptr->addr));
+		return -ENXIO;
+	}
+
+	get_uuid_str(uuid_handle, ccc_uuid, BT_UUID_STR_LEN);
+
+	for (int j = i; j >= 0; j--) {
+		uuid_handle = conn_ptr->uuid_handle_pairs[j];
+		if (uuid_handle == NULL) {
 			continue;
 		}
-
-		found = true;
-		path_depth = uuid_handle->path_depth;
-		LOG_DBG("Path Depth %d", path_depth);
-
-		bt_uuid_get_str(&uuid_handle->uuid_128.uuid,
-				chrc_uuid, BT_MAX_UUID_LEN);
-		uuid_handle++;
-		bt_uuid_get_str(&uuid_handle->uuid_128.uuid,
-				ccc_uuid, BT_MAX_UUID_LEN);
-
-		for (int j = i; j >= 0; j--) {
-			uuid_handle = &conn_ptr->uuid_handle_pairs[j];
-			if (uuid_handle->is_service) {
-				bt_uuid_get_str(&uuid_handle->uuid_128.uuid,
-						service_uuid, BT_MAX_UUID_LEN);
-				LOG_DBG("service uuid in path %s",
-					log_strdup(service_uuid));
-				break;
-			}
-		}
-
-		snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s",
-			 service_uuid, chrc_uuid);
-
-		if (ccc) {
-			snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s",
-				 service_uuid, chrc_uuid, ccc_uuid);
+		if (uuid_handle->is_service) {
+			get_uuid_str(uuid_handle, service_uuid,
+				     BT_UUID_STR_LEN);
+			LOG_DBG("service uuid in path %s",
+				log_strdup(service_uuid));
+			break;
 		}
 	}
 
-	if (!found) {
-		LOG_ERR("path not generated; handle %u not found for addr %s",
-			handle, log_strdup(conn_ptr->addr));
-		err = -ENXIO;
+	snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s",
+		 service_uuid, chrc_uuid);
+
+	if (ccc) {
+		snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s",
+			 service_uuid, chrc_uuid, ccc_uuid);
 	}
 
 	bt_to_upper(path_str, strlen(path_str));
@@ -332,7 +348,7 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr, uint16_t handle
 	memcpy(path, path_str, strlen(path_str));
 
 	LOG_DBG("Generated Path: %s", log_strdup(path_str));
-	return err;
+	return 0;
 }
 
 int ble_conn_mgr_add_conn(char *addr)
@@ -476,15 +492,37 @@ bool ble_conn_mgr_is_addr_connected(char *addr)
 	return false;
 }
 
+static struct uuid_handle_pair *find_pair_by_handle(uint16_t handle,
+					       struct ble_device_conn *conn_ptr,
+					       int *index)
+{
+	struct uuid_handle_pair *uuid_handle;
+
+	for (int i = 0; i < conn_ptr->num_pairs; i++) {
+		uuid_handle = conn_ptr->uuid_handle_pairs[i];
+		if (uuid_handle == NULL) {
+			continue;
+		}
+		if (handle == uuid_handle->handle) {
+			if (index != NULL) {
+				*index = i;
+			}
+			return uuid_handle;
+		}
+	}
+	return NULL;
+}
+
 int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 				 struct ble_device_conn *conn_ptr)
 {
-	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
-			conn_ptr->uuid_handle_pairs[i].sub_enabled = true;
-			conn_ptr->uuid_handle_pairs[i].sub_index = sub_index;
-			return 0;
-		}
+	struct uuid_handle_pair *uuid_handle;
+
+	uuid_handle = find_pair_by_handle(handle, conn_ptr, NULL);
+	if (uuid_handle) {
+		uuid_handle->sub_enabled = true;
+		uuid_handle->sub_index = sub_index;
+		return 0;
 	}
 
 	return 1;
@@ -494,25 +532,32 @@ int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 int ble_conn_mgr_remove_subscribed(uint16_t handle,
 				    struct ble_device_conn *conn_ptr)
 {
-	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
-			conn_ptr->uuid_handle_pairs[i].sub_enabled = false;
-			return 0;
-		}
+	struct uuid_handle_pair *uuid_handle;
+
+	uuid_handle = find_pair_by_handle(handle, conn_ptr, NULL);
+	if (uuid_handle) {
+		uuid_handle->sub_enabled = false;
+		return 0;
 	}
 	return 1;
 }
 
 
-int ble_conn_mgr_get_subscribed(uint16_t handle, struct ble_device_conn *conn_ptr,
-				 bool *status, uint8_t *sub_index)
+int ble_conn_mgr_get_subscribed(uint16_t handle,
+				struct ble_device_conn *conn_ptr,
+				bool *status, uint8_t *sub_index)
 {
-	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		if (handle == conn_ptr->uuid_handle_pairs[i].handle) {
-			*status = conn_ptr->uuid_handle_pairs[i].sub_enabled;
-			*sub_index = conn_ptr->uuid_handle_pairs[i].sub_index;
-			return 0;
+	struct uuid_handle_pair *uuid_handle;
+
+	uuid_handle = find_pair_by_handle(handle, conn_ptr, NULL);
+	if (uuid_handle) {
+		if (status) {
+			*status = uuid_handle->sub_enabled;
 		}
+		if (sub_index) {
+			*sub_index = uuid_handle->sub_index;
+		}
+		return 0;
 	}
 
 	return 1;
@@ -522,23 +567,19 @@ int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
 				     struct ble_device_conn *conn_ptr)
 {
 	char uuid_str[BT_UUID_STR_LEN];
+	struct uuid_handle_pair *uuid_handle;
 
 	memset(uuid, 0, BT_UUID_STR_LEN);
 
-	for (int i = 0; i < conn_ptr->num_pairs; i++) {
-		struct uuid_handle_pair *uuid_handle =
-			&conn_ptr->uuid_handle_pairs[i];
-
-		if (handle == uuid_handle->handle) {
-			bt_uuid_get_str(&uuid_handle->uuid_128.uuid, uuid_str,
-					BT_MAX_UUID_LEN);
-			bt_to_upper(uuid_str, strlen(uuid_str));
-			memcpy(uuid, uuid_str, strlen(uuid_str));
-			LOG_DBG("Found UUID: %s For Handle: %d",
-				log_strdup(uuid_str),
-				handle);
-			return 0;
-		}
+	uuid_handle = find_pair_by_handle(handle, conn_ptr, NULL);
+	if (uuid_handle) {
+		get_uuid_str(uuid_handle, uuid_str, BT_UUID_STR_LEN);
+		bt_to_upper(uuid_str, strlen(uuid_str));
+		memcpy(uuid, uuid_str, strlen(uuid_str));
+		LOG_DBG("Found UUID: %s For Handle: %d",
+			log_strdup(uuid_str),
+			handle);
+		return 0;
 	}
 
 	LOG_ERR("Handle %u on addr %s not found; num pairs: %d", handle,
@@ -557,9 +598,13 @@ int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
 		struct uuid_handle_pair *uuid_handle =
-			&conn_ptr->uuid_handle_pairs[i];
+			conn_ptr->uuid_handle_pairs[i];
 
-		bt_uuid_get_str(&uuid_handle->uuid_16.uuid, str, sizeof(str));
+		if (uuid_handle == NULL) {
+			continue;
+		}
+
+		get_uuid_str(uuid_handle, str, sizeof(str));
 		bt_to_upper(str, strlen(str));
 		LOG_DBG("UUID IN: %s UUID FOUND: %s", log_strdup(uuid),
 			log_strdup(str));
@@ -570,7 +615,7 @@ int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 			return 0;
 		}
 
-		bt_uuid_get_str(&uuid_handle->uuid_128.uuid, str, sizeof(str));
+		get_uuid_str(uuid_handle, str, sizeof(str));
 		bt_to_upper(str, strlen(str));
 		LOG_DBG("UUID IN: %s UUID FOUND: %s", log_strdup(uuid),
 			log_strdup(str));
@@ -591,18 +636,17 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 				struct ble_device_conn *conn_ptr,
 				bool is_service)
 {
-	int err = 0;
 	char str[BT_UUID_STR_LEN];
 
 	if (!conn_ptr) {
 		LOG_ERR("no connection ptr!");
-		return 1;
+		return -EINVAL;
 	}
 
 	if (conn_ptr->num_pairs >= MAX_UUID_PAIRS) {
 		LOG_ERR("Max uuid pair limit reached on %s",
 			log_strdup(conn_ptr->addr));
-		return 1;
+		return -E2BIG;
 	}
 
 	LOG_DBG("Handle Added: %d", handle);
@@ -612,40 +656,79 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 	}
 
 	struct uuid_handle_pair *uuid_handle;
+	int err = 0;
 
-	uuid_handle = &conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs];
+	uuid_handle = conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs];
+	if (uuid_handle != NULL) {
+		/* we already discovered this device */
+		if (uuid_handle->uuid_type != uuid->type) {
+			if (uuid_handle->uuid_type == BT_UUID_TYPE_16) {
+				/* likely got larger, so free and reallocate */
+				k_free(uuid_handle);
+				uuid_handle = NULL;
+			}
+		}
+	}
 
 	switch (uuid->type) {
 	case BT_UUID_TYPE_16:
+		if (uuid_handle == NULL) {
+			uuid_handle = (struct uuid_handle_pair *)
+				      k_calloc(1, SMALL_UUID_HANDLE_PAIR_SIZE);
+			if (uuid_handle == NULL) {
+				LOG_ERR("Out of memory error allocating "
+					"for handle %u", handle);
+				err = -ENOMEM;
+				break;
+			}
+		}
 		memcpy(&uuid_handle->uuid_16, BT_UUID_16(uuid),
 		       sizeof(struct bt_uuid_16));
-		uuid_handle->uuid_type = BT_UUID_TYPE_16;
+		uuid_handle->uuid_type = uuid->type;
 		bt_uuid_get_str(&uuid_handle->uuid_16.uuid, str, sizeof(str));
 
 		LOG_DBG("\tCONN MGR Characteristic: 0x%s", log_strdup(str));
 		break;
 	case BT_UUID_TYPE_128:
+		if (uuid_handle == NULL) {
+			uuid_handle = (struct uuid_handle_pair *)
+				      k_calloc(1, LARGE_UUID_HANDLE_PAIR_SIZE);
+			if (uuid_handle == NULL) {
+				LOG_ERR("Out of memory error allocating "
+					"for handle %u", handle);
+				err = -ENOMEM;
+				break;
+			}
+		}
 		memcpy(&uuid_handle->uuid_128, BT_UUID_128(uuid),
 		       sizeof(struct bt_uuid_128));
-		uuid_handle->uuid_type = BT_UUID_TYPE_128;
+		uuid_handle->uuid_type = uuid->type;
 		bt_uuid_get_str(&uuid_handle->uuid_128.uuid, str, sizeof(str));
 
 		LOG_DBG("\tCONN MGR Characteristic: 0x%s", log_strdup(str));
 		break;
 	default:
-		return 0;
+		err = -EINVAL;
 	}
 
-	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].properties = properties;
-	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].attr_type = attr_type;
-	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].path_depth = path_depth;
-	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].is_service = is_service;
-	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs].handle = handle;
+	if (err) {
+		conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs] = NULL;
+		return err;
+	}
+
+	uuid_handle->properties = properties;
+	uuid_handle->attr_type = attr_type;
+	uuid_handle->path_depth = path_depth;
+	uuid_handle->is_service = is_service;
+	uuid_handle->handle = handle;
 	LOG_INF("%d. Handle Added: %d", conn_ptr->num_pairs, handle);
+
+	/* finally, store it in the array of pointers to uuid_handle_pairs */
+	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs] = uuid_handle;
 
 	conn_ptr->num_pairs++;
 
-	return err;
+	return 0;
 }
 
 struct ble_device_conn *get_connected_device(unsigned int i)

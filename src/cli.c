@@ -51,7 +51,7 @@ enum ble_cmd_type {
 	BLE_CMD_NAME
 };
 
-extern void heap_stats(void);
+extern uint32_t heap_stats(bool print);
 
 extern struct modem_param_info modem_param;
 static char response_buf[CONFIG_AT_CMD_RESPONSE_MAX_LEN];
@@ -362,7 +362,7 @@ static void print_conn_info(const struct shell *shell)
 	int count = 0;
 	struct ble_device_conn *dev;
 	struct uuid_handle_pair *up;
-	char uuid_str[BT_MAX_UUID_LEN];
+	char uuid_str[BT_UUID_STR_LEN];
 #if defined(INCLUDE_PATHS)
 	char path[BT_MAX_PATH_LEN];
 #endif
@@ -389,16 +389,21 @@ static void print_conn_info(const struct shell *shell)
 			    ble_conn_mgr_enabled(dev->addr) ? "CLOUD" : "local",
 			    (unsigned int)dev->num_pairs
 			   );
-		shell_print(shell, "   is service, UUID, handle, type, path"
-			    " depth, properties, sub index, sub enabled");
+		shell_print(shell, "   is service, UUID, UUID type, handle, "
+				   "type, path depth, properties, sub index, "
+				   "sub enabled");
 		for (j = 0; j < dev->num_pairs; j++) {
-			up = &dev->uuid_handle_pairs[j];
-			get_uuid_str(up, uuid_str, BT_MAX_UUID_LEN);
+			up = dev->uuid_handle_pairs[j];
+			if (up == NULL) {
+				continue;
+			}
+			get_uuid_str(up, uuid_str, BT_UUID_STR_LEN);
 			shell_print(shell,
-				    "   %u, %s, %s, %u, %s, %u, 0x%02X, %u, %s",
+				    "   %u, %s, %s, %u, %u, %s, %u, 0x%02X, %u, %s",
 				    j + 1,
 				    up->is_service ? "serv" : "char",
 				    uuid_str,
+				    up->uuid_type,
 				    up->handle,
 				    up->attr_type < 4 ? types[up->attr_type] :
 				    "unk",
@@ -524,8 +529,10 @@ static int ble_disconn_mac(const struct shell *shell, char *addr)
 		shell_print(shell, "  Removing from desired list...");
 		err = ble_conn_mgr_rem_desired(addr, true);
 		if (!err) {
-			shell_print(shell, "  Disconnecting device...");
-			err = disconnect_device_by_addr(addr);
+			if (ble_conn_mgr_is_addr_connected(addr)) {
+				shell_print(shell, "  Disconnecting device...");
+				err = disconnect_device_by_addr(addr);
+			}
 		}
 	}
 	if (err) {
@@ -814,7 +821,7 @@ static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 	print_fw_info(shell);
-	heap_stats();
+	heap_stats(true);
 	return 0;
 }
 

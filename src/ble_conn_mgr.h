@@ -10,6 +10,11 @@
 #define BT_MAX_UUID_LEN 37
 #define BT_MAX_PATH_LEN 111
 
+#define SMALL_UUID_HANDLE_PAIR_SIZE (sizeof(struct uuid_handle_pair) - \
+				     sizeof(struct bt_uuid_128) + \
+				     sizeof(struct bt_uuid_16))
+#define LARGE_UUID_HANDLE_PAIR_SIZE (sizeof(struct uuid_handle_pair))
+
 struct uuid_handle_pair {
 	uint16_t handle;
 	uint8_t uuid_type;
@@ -27,7 +32,7 @@ struct uuid_handle_pair {
 
 struct ble_device_conn {
 	char addr[DEVICE_ADDR_LEN];
-	struct uuid_handle_pair uuid_handle_pairs[MAX_UUID_PAIRS];
+	struct uuid_handle_pair *uuid_handle_pairs[MAX_UUID_PAIRS];
 	uint8_t num_pairs;
 	bool connected;
 	bool discovering;
@@ -83,5 +88,6 @@ struct ble_device_conn *get_connected_device(unsigned int i);
 int get_num_connected(void);
 struct desired_conn *get_desired_array(int *array_size);
 bool ble_conn_mgr_is_addr_connected(char *addr);
+void ble_conn_mgr_print_mem(void);
 
 #endif
