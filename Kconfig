@@ -150,10 +150,9 @@ config CLOUD_UA_CONSOLE
 
 endchoice
 
-config ASSET_TRACKER_WATCHDOG_TIMEOUT_MSEC
+config WATCHDOG_TIMEOUT_MSEC
 	int "Watchdog timeout in milliseconds"
 	default 10000
-
 
 config NRF_CLOUD_GATEWAY
 	bool "nRF Cloud Gateway"
@@ -178,8 +177,14 @@ config SPM_NRF_REGULATORS_NS
 config MODEM_WAKEUP_PIN
 	int "modem wakeup pin"
 	default 17
-       help
-         Change the pin that wakes up the modem.
+	help
+	  Change the pin that wakes up the modem.
+
+config ENTER_52840_MCUBOOT_VIA_BUTTON
+	bool "Button enables 52840 MCUboot"
+	help
+	  Holding a button during and after startup will place the
+	  nrf52840 into MCUboot mode so the firmware can be updated.
 
 config SHELL_PROMPT_SECURE
 	string "Displayed prompt name"
@@ -189,34 +194,35 @@ config SHELL_PROMPT_SECURE
 
 config SHELL_DEFAULT_PASSWORD
 	string "Factory-set initial password"
-       default "nordic"
-       help
-         User needs to type this to enter the shell and execute commands.
+	default "nordic"
+	help
+	  User needs to type this to enter the shell and execute
+	  commands.
 
 config GATEWAY_DBG_CMDS
 	bool "Enable debugging commands"
-       default y
-       select CPU_LOAD
+	default y
+	select CPU_LOAD
 	select CPU_LOAD_CMDS
-       select KERNEL_SHELL
+	select KERNEL_SHELL
 
 config GATEWAY_SHELL
 	bool "Enable shell for administering nRF Cloud gateway"
-       default y
-       select SHELL
-       select SHELL_CMDS
-       select SHELL_HISTORY
-       select SHELL_METAKEYS
-       select SHELL_LOG_BACKEND
-       select SHELL_VT100_COLORS
-       select SHELL_BACKEND_SERIAL
+	default y
+	select SHELL
+	select SHELL_CMDS
+	select SHELL_HISTORY
+	select SHELL_METAKEYS
+	select SHELL_LOG_BACKEND
+	select SHELL_VT100_COLORS
+	select SHELL_BACKEND_SERIAL
 
 config STARTING_LOG_OVERRIDE
 	bool "Different logging level at boot"
-       default n
-       help
-         All configured logging will occur if disabled. Otherwise,
-         logging changed to STARTING_LOG_LEVEL until user logs in and
+	default n
+	help
+	  All configured logging will occur if disabled. Otherwise,
+	  logging changed to STARTING_LOG_LEVEL until user logs in and
 	  manually enables with 'log enable inf' (or whatever level is
 	  desired).
 

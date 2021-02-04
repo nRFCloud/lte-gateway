@@ -40,8 +40,14 @@ extern "C" {
 
 #define UI_LED_ON_PERIOD_NORMAL		500
 #define UI_LED_OFF_PERIOD_NORMAL	5000
+#define UI_LED_ON_PERIOD_FAST		200
+#define UI_LED_OFF_PERIOD_FAST		200
 #define UI_LED_ON_PERIOD_ERROR		500
 #define UI_LED_OFF_PERIOD_ERROR		500
+#define UI_LED_ON_PERIOD_MED		500
+#define UI_LED_OFF_PERIOD_MED		500
+#define UI_LED_ON_PERIOD_SLOW		2000
+#define UI_LED_OFF_PERIOD_SLOW		2000
 
 #define UI_LED_LOW			16
 #define UI_LED_MID			128
@@ -74,6 +80,9 @@ extern "C" {
 #define UI_LED_GPS_SEARCHING_COLOR	UI_LED_COLOR_PURPLE
 #define UI_LED_GPS_BLOCKED_COLOR	UI_LED_COLOR_BLUE
 #define UI_LED_GPS_FIX_COLOR		UI_LED_COLOR_GREEN
+#define UI_BLE_ERROR_COLOR		UI_LED_COLOR_RED
+#define UI_BLE_BUTTON_COLOR		UI_LED_COLOR_PURPLE
+#define UI_BLE_UPDATE_COLOR		UI_LED_COLOR_PURPLE
 #define UI_BLE_OFF_COLOR		UI_LED_COLOR_OFF
 #define UI_BLE_DISCONNECTED_COLOR	UI_LED_COLOR_YELLOW
 #define UI_BLE_CONNECTED_COLOR		UI_LED_COLOR_WHITE
@@ -104,6 +113,9 @@ enum ui_led_pattern
 	UI_LED_GPS_SEARCHING,
 	UI_LED_GPS_BLOCKED,
 	UI_LED_GPS_FIX,
+	UI_BLE_ERROR,
+	UI_BLE_UPDATE,
+	UI_BLE_BUTTON,
 	UI_BLE_OFF,
 	UI_BLE_DISCONNECTED,
 	UI_BLE_CONNECTED
@@ -203,6 +215,14 @@ int ui_led_set_color(uint8_t red, uint8_t green, uint8_t blue, uint8_t led_num);
 bool ui_button_is_active(uint32_t button);
 
 void power_button_handler(struct ui_evt evt);
+
+/**
+ * @brief Determine if user held button >= 5 seconds at startup
+ * 
+ * @return true if selected
+ */
+bool is_boot_selected(void);
+
 
 #ifdef __cplusplus
 }

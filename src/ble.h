@@ -35,7 +35,7 @@ struct ble_device_conn;
 typedef int (*notification_cb_t)(const char *ble_addr, const char *chrc_uuid,
 				  uint8_t *data, uint16_t len);
 
-void ble_init(void);
+int ble_init(void);
 void ble_add_to_whitelist(char *addr_str);
 void ble_remove_from_whitelist(char *addr_str);
 void scan_start(bool print_scan);

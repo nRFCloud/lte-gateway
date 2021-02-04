@@ -12,7 +12,7 @@
 LOG_MODULE_REGISTER(watchdog, 3);
 
 #define WDT_FEED_WORKER_DELAY_MS \
-	((CONFIG_ASSET_TRACKER_WATCHDOG_TIMEOUT_MSEC)/2)
+	((CONFIG_WATCHDOG_TIMEOUT_MSEC)/2)
 
 struct wdt_data_storage {
 	struct device *wdt_drv;
@@ -46,7 +46,7 @@ static int watchdog_timeout_install(struct wdt_data_storage *data)
 	static const struct wdt_timeout_cfg wdt_settings = {
 			.window = {
 				.min = 0,
-				.max = CONFIG_ASSET_TRACKER_WATCHDOG_TIMEOUT_MSEC,
+				.max = CONFIG_WATCHDOG_TIMEOUT_MSEC,
 			},
 			.callback = NULL,
 			.flags = WDT_FLAG_RESET_SOC
@@ -63,7 +63,7 @@ static int watchdog_timeout_install(struct wdt_data_storage *data)
 	}
 
 	LOG_INF("Watchdog timeout installed. Timeout: %d",
-		CONFIG_ASSET_TRACKER_WATCHDOG_TIMEOUT_MSEC);
+		CONFIG_WATCHDOG_TIMEOUT_MSEC);
 	return 0;
 }
 

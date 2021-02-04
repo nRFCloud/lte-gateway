@@ -21,9 +21,12 @@ static enum ui_led_pattern current_led_state;
 
 static ui_callback_t callback;
 
-bool falling_edge = true;
-bool shutdown = false;
-uint32_t timer_status = 0;
+static bool falling_edge = true;
+static bool shutdown;
+static bool held_at_startup;
+#if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+static bool boot_select;
+#endif
 
 #if !defined(CONFIG_UI_LED_USE_PWM)
 static struct k_delayed_work leds_update_work;
@@ -74,6 +77,23 @@ static void button_press_timer_handler(struct k_timer *timer)
 }
 K_TIMER_DEFINE(button_press_timer, button_press_timer_handler, NULL);
 
+#if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+static void boot_select_timer_handler(struct k_timer *timer)
+{
+	if (ui_button_is_active(1)) {
+		boot_select = true;
+		ui_led_set_pattern(UI_BLE_UPDATE, PWM_DEV_1);
+		printk("52840 mcuboot selected\n");
+	}
+}
+K_TIMER_DEFINE(boot_select_timer, boot_select_timer_handler, NULL);
+
+bool is_boot_selected(void)
+{
+	return boot_select;
+}
+#endif
+
 void power_button_handler(struct ui_evt evt)
 {
 	if (falling_edge && ui_button_is_active(1)) {
@@ -82,9 +102,10 @@ void power_button_handler(struct ui_evt evt)
 	} else if (!falling_edge && !ui_button_is_active(1)) {
 		falling_edge = true;
 
-		if (shutdown) {
+		if (shutdown && !held_at_startup) {
 			device_shutdown(false);
 		}
+		held_at_startup = false;
 	}
 }
 
@@ -189,6 +210,16 @@ int ui_init(ui_callback_t cb)
 			LOG_ERR("Could not initialize buttons, err code: %d\n",
 				err);
 			return err;
+		}
+
+		if (ui_button_is_active(1)) {
+			falling_edge = false;
+			held_at_startup = true;
+#if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+			LOG_DBG("Starting boot select timer");
+			k_timer_start(&boot_select_timer, K_SECONDS(4),
+				      K_SECONDS(0));
+#endif
 		}
 	}
 

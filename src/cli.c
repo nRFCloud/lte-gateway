@@ -1345,6 +1345,27 @@ static void get_dynamic_ble_fota(size_t idx, struct shell_static_entry *entry)
 
 SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_fota, get_dynamic_ble_fota);
 
+
+static int cmd_session(const struct shell *shell, size_t argc, char **argv)
+{
+	if (argc < 2) {
+		shell_print(shell, "Persistent sessions = %d",
+			    get_session_state());
+	} else {
+		int flag = atoi(argv[1]);
+
+		if ((get_session_state() == 0) && (flag == 1)) {
+			shell_warn(shell, "Setting persistent sessions true "
+					  "when it is not, may result "
+					  "in data loss; use at your own "
+					  "risk.");
+		}
+		shell_print(shell, "Setting persistent sessions = %d", flag);
+		save_session_state(flag);
+	}
+	return 0;
+}
+
 int check_passwd(char *passwd)
 {
 	return strcmp(passwd, DEFAULT_PASSWORD);
@@ -1494,9 +1515,13 @@ SHELL_CMD_ARG_REGISTER(ble, &sub_ble, "Bluetooth commands", NULL, 0, 3);
 SHELL_CMD_ARG_REGISTER(fota, NULL, "<host> <path> [sec_tag] [frag_size] [apn] "
 				   "firmware over-the-air update.",
 		       cmd_fota, 2, 3);
-SHELL_CMD_ARG_REGISTER(at, NULL, "<enable | AT<cmd> | exit> Execute an AT command.  Use "
-				 "<at enable> first to remain in AT command "
-				 "mode until 'exit'.", app_cmd_at, 2, 0);
+SHELL_CMD_ARG_REGISTER(at, NULL, "<enable | AT<cmd> | exit> Execute an AT "
+				 "command.  Use <at enable> first to remain "
+				 "in AT command mode until 'exit'.",
+		       app_cmd_at, 2, 0);
+SHELL_CMD_ARG_REGISTER(session, NULL, "<0 | 1> Get or change persistent "
+				      "sessions flag.",
+		       cmd_session, 0, 1);
 SHELL_CMD_REGISTER(reboot, NULL, "Reboot the gateway.", cmd_reboot);
 SHELL_CMD_REGISTER(shutdown, NULL, "Shutdown the gateway.", cmd_shutdown);
 SHELL_CMD_REGISTER(exit, NULL, "Exit 'select at' mode.", app_exit);

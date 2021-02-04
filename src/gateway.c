@@ -17,6 +17,7 @@
 #include "nrf_cloud_transport.h"
 #include "nrf_cloud_mem.h"
 
+#include "ui.h"
 #include "cJSON.h"
 #include "cJSON_os.h"
 #include "ble.h"
@@ -354,6 +355,8 @@ void device_shutdown(bool reboot)
 		nrf_gpio_cfg_sense_set(CONFIG_MODEM_WAKEUP_PIN,
 				       NRF_GPIO_PIN_SENSE_LOW);
 	}
+
+	ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
 
 	LOG_INF("Disconnect from cloud...");
 	backend = cloud_get_binding("NRF_CLOUD");
