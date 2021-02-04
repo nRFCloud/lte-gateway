@@ -182,6 +182,7 @@ config MODEM_WAKEUP_PIN
 
 config ENTER_52840_MCUBOOT_VIA_BUTTON
 	bool "Button enables 52840 MCUboot"
+	depends on BOARD_APRICITY_GATEWAY_NRF9160 || BOARD_APRICITY_GATEWAY_NRF9160NS
 	help
 	  Holding a button during and after startup will place the
 	  nrf52840 into MCUboot mode so the firmware can be updated.

@@ -1065,7 +1065,10 @@ void main(void)
 	starting_button_handler();
 
 	k_sleep(K_SECONDS(2));
+
+#if defined(CONFIG_SHELL)
 	cli_init();
+#endif
 
 	init_gateway();
 

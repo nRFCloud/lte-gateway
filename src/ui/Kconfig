@@ -16,7 +16,8 @@ menu "User Interface"
 
 config UI_LED_USE_PWM
 	bool "Use PWM to control LEDs"
-	default y
+	default y if BOARD_APRICITY_GATEWAY_NRF9160
+	default y if BOARD_APRICITY_GATEWAY_NRF9160NS
 	select PWM
 	select PWM_0
 	select PWM_1
