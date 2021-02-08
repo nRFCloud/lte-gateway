@@ -9,10 +9,8 @@ manifest:
   projects:
     - name: sdk-nrf
       path: nrf
-      #remote: nrfcloud
-      #revision: gw-master
-      remote: origin
-      revision: feature-misc-improvements
+      remote: nrfcloud
+      revision: gw-master
       import: true
   self:
     path: lte-gateway
