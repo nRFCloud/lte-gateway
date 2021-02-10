@@ -42,9 +42,6 @@ LOG_MODULE_REGISTER(cli, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 /* disable for now -- breaks BLE HCI after used */
 #define PRINT_CTLR_INFO_ENABLED 0
 
-/* uncomment to list UUID paths in 'info conn' display */
-/* #define INCLUDE_PATHS */
-
 enum ble_cmd_type {
 	BLE_CMD_ALL,
 	BLE_CMD_MAC,
@@ -355,7 +352,8 @@ static void print_scan_info(const struct shell *shell)
 	}
 }
 
-static void print_conn_info(const struct shell *shell)
+static void print_conn_info(const struct shell *shell, bool show_path,
+			    bool notify)
 {
 	unsigned int i;
 	unsigned int j;
@@ -363,13 +361,14 @@ static void print_conn_info(const struct shell *shell)
 	struct ble_device_conn *dev;
 	struct uuid_handle_pair *up;
 	char uuid_str[BT_UUID_STR_LEN];
-#if defined(INCLUDE_PATHS)
 	char path[BT_MAX_PATH_LEN];
-#endif
 	const char *types[] = {"svc", "chr", "---", "ccc"};
 
-	shell_print(shell, "   MAC, connected, discovered, shadow"
-			   " updated, blocklist status, ctrld by, num UUIDs");
+	if (!notify) {
+		shell_print(shell, "   MAC, connected, discovered, shadow"
+				   " updated, blocklist status, ctrld by,"
+				   " num UUIDs");
+	}
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		dev = get_connected_device(i);
 		if (dev == NULL) {
@@ -389,12 +388,18 @@ static void print_conn_info(const struct shell *shell)
 			    ble_conn_mgr_enabled(dev->addr) ? "CLOUD" : "local",
 			    (unsigned int)dev->num_pairs
 			   );
-		shell_print(shell, "   is service, UUID, UUID type, handle, "
-				   "type, path depth, properties, sub index, "
-				   "sub enabled");
+		if (!notify) {
+			shell_print(shell, "   is service, UUID, UUID type, "
+					   "handle, type, path depth, "
+					   "properties, sub index, sub "
+					   "enabled");
+		}
 		for (j = 0; j < dev->num_pairs; j++) {
 			up = dev->uuid_handle_pairs[j];
 			if (up == NULL) {
+				continue;
+			}
+			if (notify && !up->sub_enabled) {
 				continue;
 			}
 			get_uuid_str(up, uuid_str, BT_UUID_STR_LEN);
@@ -412,11 +417,12 @@ static void print_conn_info(const struct shell *shell)
 				    (unsigned int)up->sub_index,
 				    up->sub_enabled ? "NOTIFY ON" : "notify off"
 			);
-#if defined(INCLUDE_PATHS)
-			ble_conn_mgr_generate_path(dev, up->handle, path,
-						   up->attr_type == 3);
-			shell_print(shell, "       %u, %s", up->handle, path);
-#endif
+			if (show_path) {
+				ble_conn_mgr_generate_path(dev, up->handle, path,
+							   up->attr_type == 3);
+				shell_print(shell, "       %u, %s",
+					    up->handle, path);
+			}
 		}
 	}
 }
@@ -863,10 +869,21 @@ static int cmd_info_scan(const struct shell *shell, size_t argc,
 static int cmd_info_conn(const struct shell *shell, size_t argc,
 				char **argv)
 {
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
+	bool path = false;
+	bool notify = false;
+	int i;
 
-	print_conn_info(shell);
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "path") == 0) {
+			path = true;
+		} else if (strcmp(argv[i], "notify") == 0) {
+			notify = true;
+		} else {
+			shell_error(shell, "unknown option: %s", argv[i]);
+			return 0;
+		}
+	}
+	print_conn_info(shell, path, notify);
 	return 0;
 }
 
@@ -1477,7 +1494,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_info,
 	SHELL_CMD(cloud, NULL, "Cloud information.", cmd_info_cloud),
 	SHELL_CMD(ctlr, NULL, "BLE controller information.",
 	          cmd_info_ctlr),
-	SHELL_CMD(conn, NULL, "Connected Bluetooth devices information.",
+	SHELL_CMD(conn, NULL, "[path] [notify] Connected Bluetooth devices "
+			      "information.",
 	          cmd_info_conn),
 	SHELL_CMD(gateway, NULL, "Gateway information.",
 		  cmd_info_gateway),

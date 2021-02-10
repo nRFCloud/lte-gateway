@@ -798,6 +798,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 	}
 
 	if (percent >= 100) {
+		ble_conn_mgr_force_dfu_rediscover(ble_addr);
 		ble_register_notify_callback(NULL);
 		LOGPKINF("DFU complete");
 		free_job();

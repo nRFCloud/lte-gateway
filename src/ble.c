@@ -256,8 +256,16 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					rx_data->read_params.single.handle,
 					uuid, connected_ptr);
 				if (err) {
-					LOG_ERR("Unable to convert handle: %d",
-						err);
+					if (discover_in_progress) {
+						LOG_INF("ignoring notification "
+							"on %s due to BLE "
+							"discovery in progress",
+							log_strdup(rx_data->
+								   addr_trunc));
+					} else {
+						LOG_ERR("Unable to convert "
+							"handle: %d", err);
+					}
 					goto cleanup;
 				}
 
@@ -270,15 +278,18 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					goto cleanup;
 				}
 
+				k_mutex_lock(&output.lock, K_FOREVER);
 				err = device_chrc_read_encode(
 					rx_data->addr_trunc,
 					uuid, path, ((char *)rx_data->data),
 					rx_data->length, &output);
 				if (err) {
+					k_mutex_unlock(&output.lock);
 					LOG_ERR("Unable to encode: %d", err);
 					goto cleanup;
 				}
 				err = g2c_send(output.buf);
+				k_mutex_unlock(&output.lock);
 				if (err) {
 					LOG_ERR("Unable to send: %d", err);
 					goto cleanup;
@@ -293,8 +304,16 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					rx_data->sub_params.value_handle, uuid,
 					connected_ptr);
 				if (err) {
-					LOG_ERR("Unable to find connection: %d",
-						err);
+					if (discover_in_progress) {
+						LOG_INF("ignoring notification "
+							"on %s due to BLE "
+							"discovery in progress",
+							log_strdup(rx_data->
+								   addr_trunc));
+					} else {
+						LOG_ERR("Unable to convert "
+							"handle: %d", err);
+					}
 					goto cleanup;
 				}
 
@@ -324,15 +343,18 @@ void send_notify_data(int unused1, int unused2, int unused3)
 					}
 				}
 
+				k_mutex_lock(&output.lock, K_FOREVER);
 				err = device_value_changed_encode(
 					rx_data->addr_trunc,
 					uuid, path, ((char *)rx_data->data),
 					rx_data->length, &output);
 				if (err) {
+					k_mutex_unlock(&output.lock);
 					LOG_ERR("Unable to encode: %d", err);
 					goto cleanup;
 				}
 				err = g2c_send(output.buf);
+				k_mutex_unlock(&output.lock);
 				if (err) {
 					LOG_ERR("Unable to send: %d", err);
 					goto cleanup;
@@ -385,8 +407,15 @@ static void discovery_service_not_found(struct bt_conn *conn, void *ctx)
 
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connected_ptr);
 
-	connected_ptr->encode_discovered = true;
-	connected_ptr->discovered = true;
+	/* only set discovered true and send results if it seems we were
+	 * successful at doing a full discovery
+	 */
+	if (connected_ptr->connected && connected_ptr->num_pairs) {
+		connected_ptr->encode_discovered = true;
+		connected_ptr->discovered = true;
+	} else {
+		LOG_WRN("Discovery not completed");
+	}
 	connected_ptr->discovering = false;
 	discover_in_progress = false;
 
@@ -638,8 +667,6 @@ static uint8_t on_received(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-	uint32_t lock = irq_lock();
-
 	if ((length > 0) && (data != NULL)) {
 
 		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
@@ -696,8 +723,6 @@ static uint8_t on_received(struct bt_conn *conn,
 			k_fifo_put(&rec_fifo, mem_ptr);
 		}
 	}
-
-	irq_unlock(lock);
 
 	return ret;
 }
@@ -756,15 +781,16 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 
 		uint8_t value[2] = {0, 0};
 
+		k_mutex_lock(&output.lock, K_FOREVER);
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
 						       value, sizeof(value),
 						       &output);
 		g2c_send(output.buf);
-
 		device_value_write_result_encode(ble_addr, "2902", path,
 						 value, sizeof(value),
 						 &output);
 		g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
 
 		sub_value[param_index] = 0;
 		sub_conn[param_index] = NULL;
@@ -783,6 +809,8 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
 			"Notify" : "Indicate");
+
+		k_mutex_lock(&output.lock, K_FOREVER);
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
 						       value, sizeof(value),
 						       &output);
@@ -791,6 +819,8 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 						 value, sizeof(value),
 						 &output);
 		g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
+
 	} else if (value_type == 0) {
 		LOG_DBG("Unsubscribe N/A: Addr %s Handle %d",
 			log_strdup(ble_addr), handle);
@@ -813,15 +843,17 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 		};
 		ble_conn_mgr_set_subscribed(handle, next_sub_index,
 					    connected_ptr);
+
+		k_mutex_lock(&output.lock, K_FOREVER);
 		device_descriptor_value_changed_encode(ble_addr, "2902", path,
 						       value, sizeof(value),
 						       &output);
 		g2c_send(output.buf);
-
 		device_value_write_result_encode(ble_addr, "2902", path,
 						 value, sizeof(value),
 						 &output);
 		g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
 
 		LOG_INF("Subscribe: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
@@ -837,8 +869,10 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			SUBSCRIPTION_LIMIT);
 
 		/* Send error when limit is reached. */
+		k_mutex_lock(&output.lock, K_FOREVER);
 		device_error_encode(ble_addr, msg, &output);
 		g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
 	}
 
 end:
@@ -982,6 +1016,9 @@ uint8_t ble_discover(char *ble_addr)
 
 		if (!connection_ptr->discovered) {
 			if (connection_ptr->num_pairs) {
+				LOG_INF("Marking device as discovered; "
+					"num pairs = %u",
+					connection_ptr->num_pairs);
 				connection_ptr->discovering = false;
 				connection_ptr->discovered = true;
 				connection_ptr->encode_discovered = true;
@@ -1048,10 +1085,12 @@ int setup_gw_shadow(void)
 {
 	int err;
 
+	k_mutex_lock(&output.lock, K_FOREVER);
 	err = gateway_shadow_data_encode(output.buf, output.len);
 	if (!err) {
 		shadow_publish(output.buf);
 	}
+	k_mutex_unlock(&output.lock);
 	return err;
 }
 
@@ -1061,11 +1100,13 @@ int update_shadow(char *ble_address, bool connecting, bool connected)
 
 	LOG_DBG("connecting=%u, connected=%u",
 		connecting, connected);
+	k_mutex_lock(&output.lock, K_FOREVER);
 	err = device_shadow_data_encode(ble_address, connecting, connected,
 					&output);
 	if (!err) {
 		shadow_publish(output.buf);
 	}
+	k_mutex_unlock(&output.lock);
 	return err;
 }
 
@@ -1119,8 +1160,11 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 		return;
 	}
 
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_connect_result_encode(addr_trunc, true, &output);
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
+
 	if (!connection_ptr->connected) {
 		LOG_INF("Connected: %s", log_strdup(addr));
 		update_shadow(addr_trunc, false, true);
@@ -1150,8 +1194,11 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
+
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_disconnect_result_encode(addr_trunc, false, &output);
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
 
 	/* if device disconnected on purpose, don't bother updating
 	 * shadow; it will likely reconnect shortly
@@ -1199,9 +1246,11 @@ static bool data_cb(struct bt_data *data, void *user_data)
 void ble_device_found_enc_handler(struct k_work *work)
 {
 	LOG_DBG("Encoding scan...");
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_found_encode(num_devices_found, &output);
 	LOG_DBG("Sending scan...");
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
 }
 
 K_WORK_DEFINE(ble_device_encode_work, ble_device_found_enc_handler);
@@ -1401,6 +1450,7 @@ void ble_stop_activity(void)
 
 int device_discovery_send(struct ble_device_conn *conn_ptr)
 {
+	k_mutex_lock(&output.lock, K_FOREVER);
 	int ret = device_discovery_encode(conn_ptr, &output);
 
 	if (!ret) {
@@ -1409,13 +1459,13 @@ int device_discovery_send(struct ble_device_conn *conn_ptr)
 		 */
 		strcat(output.buf, "}}}}}");
 
-		LOG_DBG("JSON Size: %d", strlen(output.buf));
-		LOG_INF("Sending discovery...");
+		LOG_INF("Sending discovery; JSON Size: %d", strlen(output.buf));
 
 		/* TODO: Move out of decode. */
 		g2c_send(output.buf);
 	}
 	memset(output.buf, 0, output.len);
+	k_mutex_unlock(&output.lock);
 
 	return ret;
 }
@@ -1475,6 +1525,8 @@ int ble_init(void)
 	int err;
 
 	LOG_INF("Initializing Bluetooth..");
+	k_mutex_init(&output.lock);
+
 	err = bt_enable(ble_ready);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)", err);

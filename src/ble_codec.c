@@ -701,7 +701,7 @@ static int device_discover_add_service(char *discovered_json,
 		msg->buf[strlen(msg->buf) - 3] = 0;
 	}
 
-	LOG_INF("JSON Size: %d", strlen(msg->buf));
+	LOG_DBG("JSON Size: %d", strlen(msg->buf));
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 	first_service = false;
@@ -740,7 +740,7 @@ static int device_discover_add_ccc(char *discovered_json,
 	strcat(msg->buf, discovered_json + 1);
 	strcat(msg->buf, "}");
 
-	LOG_INF("JSON Size: %d", strlen(msg->buf));
+	LOG_DBG("JSON Size: %d", strlen(msg->buf));
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -769,7 +769,7 @@ static int svc_attr_encode(char *uuid, char *path,
 	/* Print services and add to wrapper */
 	CJPRINT(services, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
 	LOG_DBG("JSON: %s", service_buffer);
-	LOG_INF("Encoding service %s", log_strdup(uuid));
+	LOG_DBG("Encoding service %s", log_strdup(uuid));
 	ret = device_discover_add_service(service_buffer, msg);
 
 cleanup:
@@ -891,7 +891,7 @@ static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
 	bt_to_upper(path, strlen(path));
 
 	if (attr_type ==  BT_ATTR_SERVICE) {
-		LOG_DBG("Encoding Service : UUID: %s", log_strdup(uuid_str));
+		LOG_INF("Encoding Service : UUID: %s", log_strdup(uuid_str));
 		ret = svc_attr_encode(uuid_str, path, ble_conn_ptr, msg);
 
 	} else if (attr_type == BT_ATTR_CHRC) {

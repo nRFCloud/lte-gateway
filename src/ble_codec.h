@@ -5,6 +5,7 @@
 #include "ble_conn_mgr.h"
 
 struct ble_msg {
+	struct k_mutex lock;
 	char *buf;
 	size_t len;
 };

@@ -65,7 +65,6 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 							     K_NO_WAIT);
 
 		if (cloud_data != NULL) {
-			/* uint32_t lock = irq_lock(); */
 			k_mutex_lock(&lock, K_FOREVER);
 
 			if (cloud_data->sub) {
@@ -103,7 +102,6 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #endif
 			k_free(cloud_data);
-			/* irq_unlock(lock); */
 			k_mutex_unlock(&lock);
 		}
 		k_sleep(K_MSEC(1000));
@@ -191,7 +189,8 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		chrc_uuid = json_object_decode(operation_obj,
 					       "characteristicUUID");
 
-		LOG_DBG("got device_characteristic_value_read");
+		LOG_INF("got device_characteristic_value_read: %s",
+			log_strdup(ble_address->valuestring));
 		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
 #if defined(QUEUE_CHAR_READS)
 			struct cloud_data_t cloud_data = {
@@ -217,7 +216,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
-			LOG_DBG("queued device_characteristic_value_read %s, %s",
+			LOG_INF("queued device_characteristic_value_read %s, %s",
 				log_strdup(cloud_data.addr),
 				log_strdup(cloud_data.uuid));
 #else

@@ -89,5 +89,7 @@ int get_num_connected(void);
 struct desired_conn *get_desired_array(int *array_size);
 bool ble_conn_mgr_is_addr_connected(char *addr);
 void ble_conn_mgr_print_mem(void);
+int ble_conn_mgr_find_related_addr(char *old_addr, char *new_addr, int len);
+int ble_conn_mgr_force_dfu_rediscover(char *addr);
 
 #endif

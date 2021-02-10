@@ -60,15 +60,8 @@ static void process_connection(int i)
 
 	/* Discovering done. Encode and send. */
 	if (dev->connected && dev->encode_discovered) {
-		/* I don't know why this is needed in a work thread.
-		 * TODO: FIX
-		 */
-		uint32_t lock = irq_lock();
-
 		dev->encode_discovered = false;
 		device_discovery_send(&connected_ble_devices[i]);
-
-		irq_unlock(lock);
 
 		bt_addr_t ble_id;
 
@@ -311,15 +304,20 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 
 	get_uuid_str(uuid_handle, chrc_uuid, BT_UUID_STR_LEN);
 
-	uuid_handle = conn_ptr->uuid_handle_pairs[i + 1];
-	if (uuid_handle == NULL) {
-		LOG_ERR("path not generated; handle after %u "
-			"not found for addr %s",
-			handle, log_strdup(conn_ptr->addr));
-		return -ENXIO;
+	if (ccc && ((i + 1) < conn_ptr->num_pairs)) {
+		uuid_handle = conn_ptr->uuid_handle_pairs[i + 1];
+		if (uuid_handle == NULL) {
+			LOG_ERR("path not generated; handle after %u "
+				"not found for addr %s",
+				handle, log_strdup(conn_ptr->addr));
+			return -ENXIO;
+		}
+		get_uuid_str(uuid_handle, ccc_uuid, BT_UUID_STR_LEN);
+	} else {
+		LOG_DBG("no ccc; end of the array");
+		ccc_uuid[0] = '\0';
+		ccc = false;
 	}
-
-	get_uuid_str(uuid_handle, ccc_uuid, BT_UUID_STR_LEN);
 
 	for (int j = i; j >= 0; j--) {
 		uuid_handle = conn_ptr->uuid_handle_pairs[j];
@@ -335,10 +333,10 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 		}
 	}
 
-	snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s",
-		 service_uuid, chrc_uuid);
-
-	if (ccc) {
+	if (!ccc) {
+		snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s",
+			 service_uuid, chrc_uuid);
+	} else {
 		snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s",
 			 service_uuid, chrc_uuid, ccc_uuid);
 	}
@@ -432,11 +430,82 @@ int ble_conn_mgr_rediscover(char *addr)
 	}
 
 	if (!connected_ble_ptr->discovering) {
+		if (connected_ble_ptr->discovered) {
+			/* cloud wants data again; just send it */
+			LOG_INF("Skipping device discovery on %s",
+				log_strdup(connected_ble_ptr->addr));
+			err = device_discovery_send(connected_ble_ptr);
+		} else {
+			connected_ble_ptr->discovered = false;
+			connected_ble_ptr->num_pairs = 0;
+		}
+	}
+
+	return err;
+}
+
+/* nRF5 SDK devices use their normal MAC address with the least significant bit
+ * of the least significant byte complemented for the DFU bootloader MAC
+ * address
+ */
+int ble_conn_mgr_find_related_addr(char *old_addr, char *new_addr, int len)
+{
+	bt_addr_le_t btaddr;
+	int err;
+
+	err = bt_addr_le_from_str(old_addr, "random", &btaddr);
+	if (err) {
+		LOG_ERR("Could not convert address");
+		return err;
+	}
+	btaddr.a.val[0] ^= 1;
+
+	bt_addr_le_to_str(&btaddr, new_addr, len);
+	bt_to_upper(new_addr, len);
+	return 0;
+}
+
+int ble_conn_mgr_force_dfu_rediscover(char *addr)
+{
+	int err = 0;
+	struct ble_device_conn *connected_ble_ptr;
+
+	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
+
+	if (err) {
+		LOG_ERR("Can't find conn to rediscover: %s", log_strdup(addr));
+		return err;
+	}
+
+	if (!connected_ble_ptr->discovering) {
+		LOG_INF("Marking device %s to be rediscovered",
+			log_strdup(addr));
 		connected_ble_ptr->discovered = false;
 		connected_ble_ptr->num_pairs = 0;
 	}
 
-	return err;
+	char related_addr[DEVICE_ADDR_LEN];
+
+	err = ble_conn_mgr_find_related_addr(addr, related_addr,
+					     DEVICE_ADDR_LEN);
+	if (err) {
+		return err;
+	}
+
+	err = ble_conn_mgr_get_conn_by_addr(related_addr, &connected_ble_ptr);
+	if (err) {
+		LOG_ERR("Can't find conn to rediscover: %s",
+			log_strdup(related_addr));
+		return err;
+	}
+
+	if (!connected_ble_ptr->discovering) {
+		LOG_INF("Marking device %s to be rediscovered",
+			log_strdup(related_addr));
+		connected_ble_ptr->discovered = false;
+		connected_ble_ptr->num_pairs = 0;
+	}
+	return 0;
 }
 
 int ble_conn_mgr_remove_conn(char *addr)
@@ -721,7 +790,7 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 	uuid_handle->path_depth = path_depth;
 	uuid_handle->is_service = is_service;
 	uuid_handle->handle = handle;
-	LOG_INF("%d. Handle Added: %d", conn_ptr->num_pairs, handle);
+	LOG_DBG("%d. Handle Added: %d", conn_ptr->num_pairs, handle);
 
 	/* finally, store it in the array of pointers to uuid_handle_pairs */
 	conn_ptr->uuid_handle_pairs[conn_ptr->num_pairs] = uuid_handle;
