@@ -75,6 +75,9 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #if defined(QUEUE_CHAR_READS)
 			else if (cloud_data->read) {
+				LOG_DBG("dequeued gatt_read request %s, %s",
+					log_strdup(cloud_data->addr),
+					log_strdup(cloud_data->uuid));
 				ret = gatt_read(cloud_data->addr,
 						cloud_data->uuid);
 				if (ret) {
@@ -188,10 +191,12 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		chrc_uuid = json_object_decode(operation_obj,
 					       "characteristicUUID");
 
+		LOG_DBG("got device_characteristic_value_read");
 		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
 #if defined(QUEUE_CHAR_READS)
 			struct cloud_data_t cloud_data = {
-				.read = true
+				.read = true,
+				.sub = false
 			};
 
 			memcpy(&cloud_data.addr,
@@ -212,6 +217,9 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
+			LOG_DBG("queued device_characteristic_value_read %s, %s",
+				log_strdup(cloud_data.addr),
+				log_strdup(cloud_data.uuid));
 #else
 			ret = gatt_read(ble_address->valuestring,
 					chrc_uuid->valuestring);
@@ -243,6 +251,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
 			struct cloud_data_t cloud_data = {
 				.sub = true,
+				.read = false
 			};
 
 			memcpy(&cloud_data.addr,
@@ -340,6 +349,12 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 exit_handler:
 	cJSON_Delete(root_obj);
 	return ret;
+}
+
+void init_gateway(void)
+{
+	nct_register_gateway_handler(gateway_handler);
+	ble_codec_init();
 }
 
 void device_shutdown(bool reboot)

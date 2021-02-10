@@ -1067,6 +1067,8 @@ void main(void)
 	k_sleep(K_SECONDS(2));
 	cli_init();
 
+	init_gateway();
+
 	err = ble_init();
 	if (err) {
 		error_handler(ERROR_BLE, err);

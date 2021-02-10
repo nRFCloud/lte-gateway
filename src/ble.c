@@ -104,7 +104,7 @@ void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len)
 		snprintk(str, len, "%04x", BT_UUID_16(uuid)->val);
 		break;
 	case BT_UUID_TYPE_32:
-		snprintk(str, len, "%04x", BT_UUID_32(uuid)->val);
+		snprintk(str, len, "%08x", BT_UUID_32(uuid)->val);
 		break;
 	case BT_UUID_TYPE_128:
 		memcpy(&tmp0, &BT_UUID_128(uuid)->val[0], sizeof(tmp0));
@@ -123,7 +123,7 @@ void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len)
 	}
 }
 
-static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service,
+static int svc_attr_data_add(const struct bt_gatt_service_val *gatt_service,
 			      uint16_t handle, struct ble_device_conn *ble_conn_ptr)
 {
 	char str[UUID_STR_LEN];
@@ -131,62 +131,62 @@ static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service,
 	bt_uuid_get_str(gatt_service->uuid, str, sizeof(str));
 
 	bt_to_upper(str, strlen(str));
+	LOG_INF("service %s", log_strdup(str));
 
-	ble_conn_mgr_add_uuid_pair(gatt_service->uuid, handle, 0, 0,
-				   BT_ATTR_SERVICE, ble_conn_ptr, true);
+	return ble_conn_mgr_add_uuid_pair(gatt_service->uuid, handle, 0, 0,
+					  BT_ATTR_SERVICE, ble_conn_ptr, true);
 }
 
-static void chrc_attr_data_add(const struct bt_gatt_chrc *gatt_chrc,
+static int chrc_attr_data_add(const struct bt_gatt_chrc *gatt_chrc,
 			       struct ble_device_conn *ble_conn_ptr)
 {
 	uint16_t handle = gatt_chrc->value_handle;
 
-	ble_conn_mgr_add_uuid_pair(gatt_chrc->uuid, handle, 1,
-				   gatt_chrc->properties, BT_ATTR_CHRC,
-				   ble_conn_ptr, false);
+	return ble_conn_mgr_add_uuid_pair(gatt_chrc->uuid, handle, 1,
+					  gatt_chrc->properties, BT_ATTR_CHRC,
+					  ble_conn_ptr, false);
 }
 
-static void ccc_attr_data_add(const struct bt_uuid *uuid, uint16_t handle,
+static int ccc_attr_data_add(const struct bt_uuid *uuid, uint16_t handle,
 			      struct ble_device_conn *ble_conn_ptr)
 {
 	LOG_DBG("\tHandle: %d", handle);
 
-	ble_conn_mgr_add_uuid_pair(uuid, handle, 2, 0, BT_ATTR_CCC,
-				   ble_conn_ptr, false);
+	return ble_conn_mgr_add_uuid_pair(uuid, handle, 2, 0, BT_ATTR_CCC,
+					  ble_conn_ptr, false);
 }
 
 /* Add attributes to the connection manager objects */
-static void attr_add(const struct bt_gatt_dm *dm,
+static int attr_add(const struct bt_gatt_dm *dm,
 	const struct bt_gatt_dm_attr *attr,
 	struct ble_device_conn *ble_conn_ptr)
 {
-	char str[UUID_STR_LEN];
 	const struct bt_gatt_service_val *gatt_service =
 		bt_gatt_dm_attr_service_val(attr);
 	const struct bt_gatt_chrc *gatt_chrc =
 		bt_gatt_dm_attr_chrc_val(attr);
-
-	bt_uuid_get_str(attr->uuid, str, sizeof(str));
-
-	bt_to_upper(str, strlen(str));
+	int err = 0;
 
 	if ((bt_uuid_cmp(attr->uuid, BT_UUID_GATT_PRIMARY) == 0) ||
 		(bt_uuid_cmp(attr->uuid, BT_UUID_GATT_SECONDARY) == 0)) {
-		svc_attr_data_add(gatt_service, attr->handle, ble_conn_ptr);
+		err = svc_attr_data_add(gatt_service, attr->handle,
+					ble_conn_ptr);
 	} else if (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CHRC) == 0) {
-		chrc_attr_data_add(gatt_chrc, ble_conn_ptr);
+		err = chrc_attr_data_add(gatt_chrc, ble_conn_ptr);
 	} else if (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CCC) == 0) {
-		ccc_attr_data_add(attr->uuid, attr->handle, ble_conn_ptr);
+		err = ccc_attr_data_add(attr->uuid, attr->handle, ble_conn_ptr);
 	}
+	return err;
 }
 
-void ble_dm_data_add(struct bt_gatt_dm *dm)
+int ble_dm_data_add(struct bt_gatt_dm *dm)
 {
 	const struct bt_gatt_dm_attr *attr = NULL;
 	char addr_trunc[BT_ADDR_STR_LEN];
 	char addr[BT_ADDR_LE_STR_LEN];
 	struct ble_device_conn *ble_conn_ptr;
 	struct bt_conn *conn_obj;
+	int err;
 
 	conn_obj = bt_gatt_dm_conn_get(dm);
 
@@ -203,11 +203,20 @@ void ble_dm_data_add(struct bt_gatt_dm *dm)
 
 	attr = bt_gatt_dm_service_get(dm);
 
-	attr_add(dm, attr, ble_conn_ptr);
+	err = attr_add(dm, attr, ble_conn_ptr);
+	if (err) {
+		LOG_ERR("Unable to add attribute");
+		return err;
+	}
 
 	while (NULL != (attr = bt_gatt_dm_attr_next(dm, attr))) {
-		attr_add(dm, attr, ble_conn_ptr);
+		err = attr_add(dm, attr, ble_conn_ptr);
+		if (err) {
+			LOG_ERR("Unable to add attribute");
+			return err;
+		}
 	}
+	return 0;
 }
 
 void ble_register_notify_callback(notification_cb_t callback)
@@ -218,10 +227,10 @@ void ble_register_notify_callback(notification_cb_t callback)
 /* Thread responsible for transferring ble data over MQTT */
 void send_notify_data(int unused1, int unused2, int unused3)
 {
-	char uuid[BT_MAX_UUID_LEN];
+	char uuid[BT_UUID_STR_LEN];
 	char path[BT_MAX_PATH_LEN];
 
-	memset(uuid, 0, BT_MAX_UUID_LEN);
+	memset(uuid, 0, BT_UUID_STR_LEN);
 	memset(path, 0, BT_MAX_PATH_LEN);
 
 	struct ble_device_conn *connected_ptr;
@@ -349,7 +358,10 @@ static void discovery_completed(struct bt_gatt_dm *disc, void *ctx)
 {
 	LOG_DBG("Attribute count: %d", bt_gatt_dm_attr_cnt(disc));
 
-	ble_dm_data_add(disc);
+	int err;
+
+	err = ble_dm_data_add(disc);
+	/* TBD: how can we cancel remainder of discovery if we get an error? */
 
 	bt_gatt_dm_data_release(disc);
 
@@ -732,7 +744,10 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 		}
 	}
 
-	ble_conn_mgr_generate_path(connected_ptr, handle, path, true);
+	err = ble_conn_mgr_generate_path(connected_ptr, handle, path, true);
+	if (err) {
+		return err;
+	}
 
 	if (subscribed && (value_type == 0)) {
 		/* If subscribed then unsubscribe. */
@@ -866,7 +881,10 @@ int ble_subscribe_all(char *ble_addr, uint8_t value_type)
 	}
 
 	for (i = 0; i < conn_ptr->num_pairs; i++) {
-		up = &conn_ptr->uuid_handle_pairs[i];
+		up = conn_ptr->uuid_handle_pairs[i];
+		if (up == NULL) {
+			continue;
+		}
 		if ((up->properties & BT_GATT_CHRC_NOTIFY) !=
 		    BT_GATT_CHRC_NOTIFY) {
 			continue;

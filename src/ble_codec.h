@@ -37,5 +37,8 @@ int gateway_shadow_data_encode(char *buf, size_t len);
 int device_shadow_data_encode(char *ble_address, bool connecting,
 			      bool connected, struct ble_msg *msg);
 void get_uuid_str(struct uuid_handle_pair *uuid_handle, char *str, size_t len);
+int nrf_cloud_update_gateway_state(struct desired_conn *desired,
+					  int num_desired);
+void ble_codec_init(void);
 
 #endif
