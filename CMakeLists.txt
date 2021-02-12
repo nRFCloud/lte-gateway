@@ -14,7 +14,8 @@ set(FW_VERSION_MAJOR "1")
 set(FW_VERSION_MINOR "4.0")
 
 set(spm_CONF_FILE
-    ${CMAKE_CURRENT_SOURCE_DIR}/child_secure_partition_manager.conf)
+    prj.conf
+    ${CMAKE_CURRENT_SOURCE_DIR}/${BOARD}_spm.conf)
 
 # enable ability to perform FOTA from NCS 1.2.0 gw to newer
 # e.g., west build -p auto -b apricity_gateway_nrf9160ns -d build_dbg -- -DFOTA_OLD_GW=y

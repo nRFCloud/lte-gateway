@@ -89,6 +89,9 @@ extern "C" {
 
 #else
 
+#define PWM_DEV_0			-1
+#define PWM_DEV_1			-1
+
 #define UI_LED_ON_PERIOD_NORMAL		K_MSEC(500)
 #define UI_LED_OFF_PERIOD_NORMAL	K_MSEC(500)
 
@@ -121,13 +124,17 @@ enum ui_led_pattern
 	UI_BLE_CONNECTED
 
 #else /* LED patterns without using PWM. */
+	UI_LED_UNHANDLED	= -1,
+	UI_BLE_CONNECTED	= UI_LED_UNHANDLED,
+	UI_BLE_DISCONNECTED	= UI_LED_UNHANDLED,
+	UI_BLE_OFF		= UI_LED_UNHANDLED,
+	UI_BLE_UPDATE		= UI_LED_UNHANDLED,
+	UI_BLE_BUTTON		= UI_LED_UNHANDLED,
 	UI_LTE_DISCONNECTED	= UI_LED_ON(0),
 	UI_LTE_CONNECTING	= UI_LED_BLINK(DK_LED3_MSK),
 	UI_LTE_CONNECTED	= UI_LED_BLINK(DK_LED3_MSK),
 	UI_CLOUD_CONNECTING	= UI_LED_BLINK(DK_LED3_MSK | DK_LED4_MSK),
 	UI_CLOUD_CONNECTED	= UI_LED_ON(DK_LED4_MSK),
-	UI_LED_GPS_SEARCHING	= UI_LED_ON(DK_LED4_MSK),
-	UI_LED_GPS_FIX		= UI_LED_ON(DK_LED4_MSK),
 	UI_LED_GPS_BLOCKED      = UI_LED_ON(DK_LED4_MSK),
 	UI_CLOUD_PAIRING	= UI_LED_BLINK(DK_LED3_MSK | DK_LED4_MSK),
 	UI_ACCEL_CALIBRATING	= UI_LED_ON(DK_LED1_MSK | DK_LED3_MSK),
@@ -218,7 +225,7 @@ void power_button_handler(struct ui_evt evt);
 
 /**
  * @brief Determine if user held button >= 5 seconds at startup
- * 
+ *
  * @return true if selected
  */
 bool is_boot_selected(void);

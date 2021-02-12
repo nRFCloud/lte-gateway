@@ -69,8 +69,12 @@ static void leds_update(struct k_work *work)
 static void button_press_timer_handler(struct k_timer *timer)
 {
 	if (ui_button_is_active(1)) {
+#ifdef CONFIG_UI_LED_USE_PWM
 		ui_led_set_pattern(UI_LTE_DISCONNECTED, PWM_DEV_0);
 		ui_led_set_pattern(UI_BLE_OFF, PWM_DEV_1);
+#else
+		current_led_state = UI_LTE_DISCONNECTED;
+#endif
 		shutdown = true;
 		LOG_INF("Button pressed; disconnecting!");
 	}
@@ -142,11 +146,12 @@ static void button_handler(uint32_t button_states, uint32_t has_changed)
 
 void ui_led_set_pattern(enum ui_led_pattern state, uint8_t led_num)
 {
-	current_led_state = state;
 #ifdef CONFIG_UI_LED_USE_PWM
 	ui_led_set_effect(state, led_num);
 #else
-	current_led_state = state;
+	if (state != UI_LED_UNHANDLED) {
+		current_led_state = state;
+	}
 #endif /* CONFIG_UI_LED_USE_PWM */
 }
 
