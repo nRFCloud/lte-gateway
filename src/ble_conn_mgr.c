@@ -94,13 +94,25 @@ void connection_manager(int unused1, int unused2, int unused3)
 		}
 
 end:
-		k_sleep(K_MSEC(500));
+		k_sleep(K_MSEC(100));
 	}
 }
 
 K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 		connection_manager, NULL, NULL, NULL,
 		CONN_MGR_PRIORITY, 0, 0);
+
+static void init_conn(struct ble_device_conn *dev)
+{
+	dev->connected = false;
+	dev->disconnect = false;
+	dev->discovering = false;
+	dev->discovered = false;
+	dev->added_to_whitelist = false;
+	dev->encode_discovered = false;
+	dev->shadow_updated = false;
+	dev->free = true;
+}
 
 static void ble_conn_mgr_conn_reset(struct ble_device_conn
 					*dev)
@@ -111,15 +123,8 @@ static void ble_conn_mgr_conn_reset(struct ble_device_conn
 		if (num_connected) {
 			num_connected--;
 		}
-		dev->free = true;
 	}
-	dev->connected = false;
-	dev->disconnect = false;
-	dev->discovering = false;
-	dev->discovered = false;
-	dev->added_to_whitelist = false;
-	dev->encode_discovered = false;
-	dev->shadow_updated = false;
+	init_conn(dev);
 
 	/* free in backwards order to try to reduce fragmentation */
 	while (dev->num_pairs) {
@@ -434,7 +439,11 @@ int ble_conn_mgr_rediscover(char *addr)
 			/* cloud wants data again; just send it */
 			LOG_INF("Skipping device discovery on %s",
 				log_strdup(connected_ble_ptr->addr));
-			err = device_discovery_send(connected_ble_ptr);
+			if (connected_ble_ptr->connected) {
+				connected_ble_ptr->encode_discovered = true;
+			} else {
+				err = device_discovery_send(connected_ble_ptr);
+			}
 		} else {
 			connected_ble_ptr->discovered = false;
 			connected_ble_ptr->num_pairs = 0;
@@ -819,13 +828,7 @@ void ble_conn_mgr_init()
 {
 	num_connected = 0;
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
-		connected_ble_devices[i].connected = false;
-		connected_ble_devices[i].discovering = false;
+		init_conn(&connected_ble_devices[i]);
 		connected_ble_devices[i].free = true;
-		connected_ble_devices[i].discovered = false;
-		connected_ble_devices[i].encode_discovered = false;
-		connected_ble_devices[i].added_to_whitelist = false;
-		connected_ble_devices[i].shadow_updated = false;
-		connected_ble_devices[i].disconnect = false;
 	}
 }

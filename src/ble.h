@@ -43,7 +43,8 @@ void ble_register_notify_callback(notification_cb_t callback);
 int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type);
 int ble_subscribe_handle(char *ble_addr, uint16_t handle, uint8_t value_type);
 int ble_subscribe_all(char *ble_addr, uint8_t value_type);
-int gatt_read(char *ble_addr, char *chrc_uuid);
+int gatt_read_handle(char *ble_addr, uint16_t handle, bool ccc);
+int gatt_read(char *ble_addr, char *chrc_uuid, bool ccc);
 int gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data,
 	       uint16_t data_len, bt_gatt_write_func_t cb);
 int gatt_write_without_response(char *ble_addr, char *chrc_uuid, uint8_t *data,

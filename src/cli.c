@@ -410,8 +410,8 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 				    uuid_str,
 				    up->uuid_type,
 				    up->handle,
-				    up->attr_type < 4 ? types[up->attr_type] :
-				    "unk",
+				    up->attr_type <= BT_ATTR_CCC ? 
+				    types[up->attr_type] : "unk",
 				    (unsigned int)up->path_depth,
 				    (unsigned int)up->properties,
 				    (unsigned int)up->sub_index,
@@ -419,7 +419,7 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 			);
 			if (show_path) {
 				ble_conn_mgr_generate_path(dev, up->handle, path,
-							   up->attr_type == 3);
+						  up->attr_type == BT_ATTR_CCC);
 				shell_print(shell, "       %u, %s",
 					    up->handle, path);
 			}

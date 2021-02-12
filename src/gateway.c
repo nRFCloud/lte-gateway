@@ -47,6 +47,7 @@ struct cloud_data_t {
 	char addr[BT_ADDR_STR_LEN];
 	char uuid[UUID_STR_LEN];
 	bool read;
+	bool ccc;
 	bool sub;
 	uint8_t client_char_config;
 };
@@ -74,15 +75,18 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #if defined(QUEUE_CHAR_READS)
 			else if (cloud_data->read) {
-				LOG_DBG("dequeued gatt_read request %s, %s",
+				LOG_DBG("dequeued gatt_read request %s, %s, %u",
 					log_strdup(cloud_data->addr),
-					log_strdup(cloud_data->uuid));
+					log_strdup(cloud_data->uuid),
+					cloud_data->ccc);
 				ret = gatt_read(cloud_data->addr,
-						cloud_data->uuid);
+						cloud_data->uuid,
+						cloud_data->ccc);
 				if (ret) {
-					LOG_ERR("Error on gatt_read(%s, %s): %d",
+					LOG_ERR("Error on gatt_read(%s, %s, %u): %d",
 						log_strdup(cloud_data->addr),
 						log_strdup(cloud_data->uuid),
+						cloud_data->ccc,
 						ret);
 				}
 			}
@@ -195,6 +199,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 #if defined(QUEUE_CHAR_READS)
 			struct cloud_data_t cloud_data = {
 				.read = true,
+				.ccc = false,
 				.sub = false
 			};
 
@@ -216,14 +221,65 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
-			LOG_INF("queued device_characteristic_value_read %s, %s",
+			LOG_INF("queued device_characteristic_value_read %s, %s, 0",
 				log_strdup(cloud_data.addr),
 				log_strdup(cloud_data.uuid));
 #else
 			ret = gatt_read(ble_address->valuestring,
 					chrc_uuid->valuestring);
 			if (ret) {
-				LOG_ERR("Error on gatt_read(%s, %s): %d",
+				LOG_ERR("Error on gatt_read(%s, %s, 0): %d",
+					log_strdup(ble_address->valuestring),
+					log_strdup(chrc_uuid->valuestring),
+					ret);
+			}
+#endif
+		}
+
+	} else if (compare(desired_obj->valuestring,
+			   "device_descriptor_value_read")) {
+
+		ble_address = json_object_decode(operation_obj,
+						 "deviceAddress");
+		chrc_uuid = json_object_decode(operation_obj,
+					       "characteristicUUID");
+
+		LOG_INF("got device_descriptor_value_read: %s",
+			log_strdup(ble_address->valuestring));
+		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
+#if defined(QUEUE_CHAR_READS)
+			struct cloud_data_t cloud_data = {
+				.read = true,
+				.ccc = true,
+				.sub = false
+			};
+
+			memcpy(&cloud_data.addr,
+			       ble_address->valuestring,
+			       strlen(ble_address->valuestring));
+			memcpy(&cloud_data.uuid,
+			       chrc_uuid->valuestring,
+			       strlen(chrc_uuid->valuestring));
+
+			size_t size = sizeof(struct cloud_data_t);
+			char *mem_ptr = k_malloc(size);
+
+			if (mem_ptr == NULL) {
+				LOG_ERR("Out of memory!");
+				ret = -ENOMEM;
+				goto exit_handler;
+			}
+
+			memcpy(mem_ptr, &cloud_data, size);
+			k_fifo_put(&cloud_data_fifo, mem_ptr);
+			LOG_INF("queued device_descriptor_value_read %s, %s",
+				log_strdup(cloud_data.addr),
+				log_strdup(cloud_data.uuid));
+#else
+			ret = gatt_read(ble_address->valuestring,
+					chrc_uuid->valuestring, true);
+			if (ret) {
+				LOG_ERR("Error on gatt_read(%s, %s, 1): %d",
 					log_strdup(ble_address->valuestring),
 					log_strdup(chrc_uuid->valuestring),
 					ret);

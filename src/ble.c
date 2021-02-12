@@ -239,136 +239,104 @@ void send_notify_data(int unused1, int unused2, int unused3)
 		int err;
 		struct rec_data_t *rx_data = k_fifo_get(&rec_fifo, K_NO_WAIT);
 
-		if (rx_data != NULL) {
-			err = ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc,
-						      &connected_ptr);
-			if (err) {
-				LOG_ERR("Unable to find connection: %d", err);
-				goto cleanup;
-			}
-
-			if (rx_data->read) {
-				LOG_INF("Read: Addr %s Handle %d",
-					log_strdup(rx_data->addr_trunc),
-					rx_data->read_params.single.handle);
-
-				err = ble_conn_mgr_get_uuid_by_handle(
-					rx_data->read_params.single.handle,
-					uuid, connected_ptr);
-				if (err) {
-					if (discover_in_progress) {
-						LOG_INF("ignoring notification "
-							"on %s due to BLE "
-							"discovery in progress",
-							log_strdup(rx_data->
-								   addr_trunc));
-					} else {
-						LOG_ERR("Unable to convert "
-							"handle: %d", err);
-					}
-					goto cleanup;
-				}
-
-				err = ble_conn_mgr_generate_path(connected_ptr,
-					rx_data->read_params.single.handle,
-					path, false);
-				if (err) {
-					LOG_ERR("Unable to generate path: %d",
-						err);
-					goto cleanup;
-				}
-
-				k_mutex_lock(&output.lock, K_FOREVER);
-				err = device_chrc_read_encode(
-					rx_data->addr_trunc,
-					uuid, path, ((char *)rx_data->data),
-					rx_data->length, &output);
-				if (err) {
-					k_mutex_unlock(&output.lock);
-					LOG_ERR("Unable to encode: %d", err);
-					goto cleanup;
-				}
-				err = g2c_send(output.buf);
-				k_mutex_unlock(&output.lock);
-				if (err) {
-					LOG_ERR("Unable to send: %d", err);
-					goto cleanup;
-				}
-
-			} else {
-				LOG_DBG("Notify Addr %s Handle %d",
-					log_strdup(rx_data->addr_trunc),
-					rx_data->sub_params.value_handle);
-
-				err = ble_conn_mgr_get_uuid_by_handle(
-					rx_data->sub_params.value_handle, uuid,
-					connected_ptr);
-				if (err) {
-					if (discover_in_progress) {
-						LOG_INF("ignoring notification "
-							"on %s due to BLE "
-							"discovery in progress",
-							log_strdup(rx_data->
-								   addr_trunc));
-					} else {
-						LOG_ERR("Unable to convert "
-							"handle: %d", err);
-					}
-					goto cleanup;
-				}
-
-				err = ble_conn_mgr_generate_path(connected_ptr,
-					rx_data->sub_params.value_handle,
-					path, true);
-				if (err) {
-					LOG_ERR("Unable to generate path: %d",
-						err);
-					goto cleanup;
-				}
-
-				LOG_HEXDUMP_DBG(rx_data->data, rx_data->length,
-						"notify");
-
-				if (notify_callback) {
-					err = notify_callback(rx_data->addr_trunc,
-							      uuid,
-							      rx_data->data,
-							      rx_data->length);
-					if (err) {
-						/* callback should return 0
-						 * if it did not process the
-						 * data
-						 */
-						goto cleanup;
-					}
-				}
-
-				k_mutex_lock(&output.lock, K_FOREVER);
-				err = device_value_changed_encode(
-					rx_data->addr_trunc,
-					uuid, path, ((char *)rx_data->data),
-					rx_data->length, &output);
-				if (err) {
-					k_mutex_unlock(&output.lock);
-					LOG_ERR("Unable to encode: %d", err);
-					goto cleanup;
-				}
-				err = g2c_send(output.buf);
-				k_mutex_unlock(&output.lock);
-				if (err) {
-					LOG_ERR("Unable to send: %d", err);
-					goto cleanup;
-				}
-			}
-
-cleanup:
-			k_free(rx_data);
-			atomic_dec(&queued_notifications);
-
-		} else {
+		if (rx_data == NULL) {
 			/* no pending notifications, so let others take turn */
 			k_sleep(K_MSEC(10));
+			continue;
 		}
+		err = ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc,
+					      &connected_ptr);
+		if (err) {
+			LOG_ERR("Unable to find connection: %d", err);
+			goto cleanup;
+		}
+
+		uint16_t handle;
+
+		if (rx_data->read) {
+			handle = rx_data->read_params.single.handle;
+			LOG_INF("Read: Addr %s Handle %d",
+				log_strdup(rx_data->addr_trunc), handle);
+		} else {
+			handle = rx_data->sub_params.value_handle;
+			LOG_DBG("Notify Addr %s Handle %d",
+				log_strdup(rx_data->addr_trunc), handle);
+		}
+
+		err = ble_conn_mgr_get_uuid_by_handle(handle, uuid,
+						      connected_ptr);
+		if (err) {
+			if (discover_in_progress) {
+				LOG_INF("ignoring notification on %s due to BLE"
+					" discovery in progress",
+					log_strdup(rx_data->addr_trunc));
+			} else {
+				LOG_ERR("Unable to convert handle: %d", err);
+			}
+			goto cleanup;
+		}
+
+		bool ccc = !rx_data->read;
+
+		if (strcmp(uuid, "2902") == 0) {
+			ccc = true;
+			handle--;
+			LOG_INF("force ccc for handle %u", handle);
+		}
+
+		err = ble_conn_mgr_generate_path(connected_ptr, handle, path,
+						 ccc);
+		if (err) {
+			LOG_ERR("Unable to generate path: %d", err);
+			goto cleanup;
+		}
+
+		LOG_HEXDUMP_DBG(rx_data->data, rx_data->length, "notify");
+
+		if (!rx_data->read && notify_callback) {
+			err = notify_callback(rx_data->addr_trunc, uuid,
+					      rx_data->data, rx_data->length);
+			if (err) {
+				/* callback should return 0 if it did not
+				 * process the data
+				 */
+				goto cleanup;
+			}
+		}
+
+		k_mutex_lock(&output.lock, K_FOREVER);
+		if (rx_data->read && !ccc) {
+			err = device_chrc_read_encode(rx_data->addr_trunc,
+				uuid, path, ((char *)rx_data->data),
+				rx_data->length, &output);
+		} else if (rx_data->read && ccc) {
+			err = device_descriptor_value_encode(rx_data->addr_trunc,
+							     "2902", path,
+							     ((char *)rx_data->data),
+							     rx_data->length, 
+							     &output, false);
+		} else {
+			err = device_value_changed_encode(rx_data->addr_trunc,
+				uuid, path, ((char *)rx_data->data),
+				rx_data->length, &output);
+		}
+		if (err) {
+			k_mutex_unlock(&output.lock);
+			LOG_ERR("Unable to encode: %d", err);
+			goto cleanup;
+		}
+		LOG_DBG("uuid %s, path %s, len %u, json %s",
+			log_strdup(uuid), log_strdup(path),
+			rx_data->length, log_strdup(output.buf));
+		err = g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
+		if (err) {
+			LOG_ERR("Unable to send: %d", err);
+		}
+
+cleanup:
+		k_free(rx_data);
+		atomic_dec(&queued_notifications);
 	}
 }
 
@@ -478,14 +446,16 @@ static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 		LOG_INF("Read Addr %s", log_strdup(addr_trunc));
 
 		struct rec_data_t read_data = {
+			.fifo_reserved = NULL,
 			.length = length,
 			.read = true
 		};
 
-		memcpy(&read_data.addr_trunc, addr_trunc, strlen(addr_trunc));
-		memcpy(&read_data.data, data, length);
+		memset(&read_data.sub_params, 0, sizeof(read_data.sub_params));
 		memcpy(&read_data.read_params, params,
 			sizeof(struct bt_gatt_read_params));
+		memcpy(&read_data.addr_trunc, addr_trunc, strlen(addr_trunc));
+		memcpy(&read_data.data, data, length);
 
 		size_t size = sizeof(struct rec_data_t);
 
@@ -506,26 +476,16 @@ static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 	return ret;
 }
 
-int gatt_read(char *ble_addr, char *chrc_uuid)
+int gatt_read_handle(char *ble_addr, uint16_t handle, bool ccc)
 {
 	int err;
 	static struct bt_gatt_read_params params;
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
-	struct ble_device_conn *connected_ptr;
-	uint16_t handle;
 
-	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
-	if (err) {
-		return err;
+	if (ccc) {
+		handle++;
 	}
-
-	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
-					      connected_ptr);
-	if (err) {
-		return err;
-	}
-
 	params.handle_count = 1;
 	params.single.handle = handle;
 	params.func = gatt_read_callback;
@@ -545,6 +505,26 @@ int gatt_read(char *ble_addr, char *chrc_uuid)
 	err = bt_gatt_read(conn, &params);
 	bt_conn_unref(conn);
 	return err;
+}
+
+int gatt_read(char *ble_addr, char *chrc_uuid, bool ccc)
+{
+	int err;
+	struct ble_device_conn *connected_ptr;
+	uint16_t handle;
+
+	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
+					      connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	return gatt_read_handle(ble_addr, handle, ccc);
 }
 
 static void on_sent(struct bt_conn *conn, uint8_t err,
@@ -677,6 +657,7 @@ static uint8_t on_received(struct bt_conn *conn,
 		bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
 		struct rec_data_t tx_data = {
+			.read = false,
 			.length = length
 		};
 
@@ -782,9 +763,9 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 		uint8_t value[2] = {0, 0};
 
 		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
+		device_descriptor_value_encode(ble_addr, "2902", path,
+					       value, sizeof(value),
+					       &output, true);
 		g2c_send(output.buf);
 		device_value_write_result_encode(ble_addr, "2902", path,
 						 value, sizeof(value),
@@ -811,9 +792,9 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			"Notify" : "Indicate");
 
 		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
+		device_descriptor_value_encode(ble_addr, "2902", path,
+					       value, sizeof(value),
+					       &output, true);
 		g2c_send(output.buf);
 		device_value_write_result_encode(ble_addr, "2902", path,
 						 value, sizeof(value),
@@ -845,9 +826,9 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 					    connected_ptr);
 
 		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
+		device_descriptor_value_encode(ble_addr, "2902", path,
+					       value, sizeof(value),
+					       &output, true);
 		g2c_send(output.buf);
 		device_value_write_result_encode(ble_addr, "2902", path,
 						 value, sizeof(value),

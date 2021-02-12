@@ -26,10 +26,10 @@ int device_discovery_encode(struct ble_device_conn *conn_ptr,
 int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 				     char *value, uint16_t value_length,
 				     struct ble_msg *msg);
-int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
-					   char *path, char *value,
-					   uint16_t value_length,
-					   struct ble_msg *msg);
+int device_descriptor_value_encode(char *ble_address, char *uuid,
+				   char *path, char *value,
+				   uint16_t value_length,
+				   struct ble_msg *msg, bool changed);
 int device_error_encode(char *ble_address, char *error_msg,
 			struct ble_msg *msg);
 int device_disconnect_result_encode(char *ble_address, bool conn_status,

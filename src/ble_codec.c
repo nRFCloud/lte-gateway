@@ -433,10 +433,10 @@ cleanup:
 	return ret;
 }
 
-int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
-					   char *path, char *value,
-					   uint16_t value_length,
-					   struct ble_msg *msg)
+int device_descriptor_value_encode(char *ble_address, char *uuid,
+				   char *path, char *value,
+				   uint16_t value_length,
+				   struct ble_msg *msg, bool changed)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -449,6 +449,7 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 
 	if ((root_obj == NULL) || (event == NULL) || (device == NULL) ||
 	    (address == NULL) || (desc == NULL) || (value_arr == NULL)) {
+		LOG_ERR("Invalid parameters");
 		goto cleanup;
 	}
 
@@ -456,7 +457,9 @@ int device_descriptor_value_changed_encode(char *ble_address, char *uuid,
 	CJADDSTRCS(root_obj, "gatewayId", gateway_id);
 	CJADDNULLCS(root_obj, "requestId");
 
-	CJADDSTRCS(event, "type", "device_descriptor_value_changed");
+	CJADDSTRCS(event, "type", changed ? 
+		   "device_descriptor_value_changed" :
+		   "device_descriptor_value_read_result");
 	CJADDSTRCS(event, "timestamp", get_time_str(str, sizeof(str)));
 
 	CJADDSTRCS(device, "id", ble_address);
@@ -850,7 +853,7 @@ cleanup:
 
 static int ccc_attr_encode(char *uuid, char *path,
 			   struct ble_device_conn *ble_conn_ptr,
-			   struct ble_msg *msg)
+			   struct ble_msg *msg, bool sub_enabled)
 {
 	int ret = -ENOMEM;
 	cJSON *descriptor = cJSON_CreateObject();
@@ -861,9 +864,11 @@ static int ccc_attr_encode(char *uuid, char *path,
 	     (parent_ccc == NULL)) {
 		goto cleanup;
 	}
+	uint8_t val = sub_enabled ? BT_GATT_CCC_NOTIFY : 0;
 
+	LOG_INF("value: %u", val);
 	CJADDSTRCS(descriptor, "uuid", uuid);
-	CJADDARRNUM(value_arr, 0);
+	CJADDARRNUM(value_arr, val);
 	CJADDARRNUM(value_arr, 0);
 	CJADDSTRCS(descriptor, "path", path);
 
@@ -881,8 +886,10 @@ cleanup:
 	return ret;
 }
 
-static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
-		       uint8_t properties, struct ble_device_conn *ble_conn_ptr,
+static int attr_encode(struct uuid_handle_pair *uuid_handle,
+		       struct uuid_handle_pair *other_handle,
+		       char *uuid_str, char *path,
+		       struct ble_device_conn *ble_conn_ptr,
 		       struct ble_msg *msg)
 {
 	int ret = 0;
@@ -890,20 +897,23 @@ static int attr_encode(uint16_t attr_type, char *uuid_str, char *path,
 	bt_to_upper(uuid_str, strlen(uuid_str));
 	bt_to_upper(path, strlen(path));
 
-	if (attr_type ==  BT_ATTR_SERVICE) {
+	if (uuid_handle->attr_type ==  BT_ATTR_SERVICE) {
 		LOG_INF("Encoding Service : UUID: %s", log_strdup(uuid_str));
 		ret = svc_attr_encode(uuid_str, path, ble_conn_ptr, msg);
 
-	} else if (attr_type == BT_ATTR_CHRC) {
+	} else if (uuid_handle->attr_type == BT_ATTR_CHRC) {
 		LOG_DBG("Encoding Characteristic : UUID: %s  PATH: %s",
 			log_strdup(uuid_str), log_strdup(path));
-		ret = chrc_attr_encode(uuid_str, path, properties,
+		ret = chrc_attr_encode(uuid_str, path, uuid_handle->properties,
 				       ble_conn_ptr, msg);
 
-	} else if (attr_type == BT_ATTR_CCC) {
-		LOG_DBG("Encoding CCC : UUID: %s  PATH: %s",
+	} else if (uuid_handle->attr_type == BT_ATTR_CCC) {
+		LOG_INF("Encoding CCC : UUID: %s  PATH: %s",
 			log_strdup(uuid_str), log_strdup(path));
-		ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr, msg);
+		ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr, msg,
+				      other_handle ?
+				      other_handle->sub_enabled : 0);
+
 	} else {
 		LOG_ERR("Unknown Attr Type");
 		ret = -EINVAL;
@@ -948,7 +958,7 @@ int device_discovery_encode(struct ble_device_conn *conn_ptr,
 
 	for (int i = 0; i < conn_ptr->num_pairs; i++) {
 		struct uuid_handle_pair *uuid_handle;
-		struct uuid_handle_pair *uh;
+		struct uuid_handle_pair *uh = NULL;
 
 		uuid_handle = conn_ptr->uuid_handle_pairs[i];
 		if (uuid_handle == NULL) {
@@ -991,8 +1001,8 @@ int device_discovery_encode(struct ble_device_conn *conn_ptr,
 			break;
 		}
 
-		ret = attr_encode(uuid_handle->attr_type, uuid_str, path_str,
-			    uuid_handle->properties, conn_ptr, msg);
+		ret = attr_encode(uuid_handle, uh, uuid_str, path_str,
+				  conn_ptr, msg);
 		if (!ret) {
 			num_encoded++;
 		}
