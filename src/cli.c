@@ -1422,7 +1422,7 @@ static int cmd_login(const struct shell *shell, size_t argc, char **argv)
 		attempts = 0;
 		/* not public: shell_obscure_set(shell, false); */
 		shell->ctx->internal.flags.obscure = false;
-		shell_history_purge(shell->history);
+		z_shell_history_purge(shell->history);
 		shell_set_root_cmd(NULL);
 		shell_prompt_change(shell, CONFIG_SHELL_PROMPT_SECURE);
 		shell_print(shell, "nRF Cloud Gateway\n");
