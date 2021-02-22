@@ -34,14 +34,14 @@ static void process_connection(int i)
 	if (dev->free) {
 		return;
 	}
-	/* Add devices to whitelist */
-	if (!dev->added_to_whitelist) {
-		ble_add_to_whitelist(dev->addr);
-		dev->added_to_whitelist = true;
+	/* Add devices to allowlist */
+	if (!dev->added_to_allowlist) {
+		ble_add_to_allowlist(dev->addr);
+		dev->added_to_allowlist = true;
 		err = update_shadow(dev->addr, true, false);
 		if (!err) {
 			dev->shadow_updated = true;
-			LOG_INF("Device added to whitelist.");
+			LOG_INF("Device added to allowlist.");
 		}
 	}
 
@@ -94,6 +94,11 @@ void connection_manager(int unused1, int unused2, int unused3)
 		}
 
 end:
+		/* give up the CPU for a while; otherwise we spin much faster
+		 * than the cloud side could reasonably change things,
+		 * or that devices might connect and disconnect, and so
+		 * would needlessly consume CPU
+		 */
 		k_sleep(K_MSEC(100));
 	}
 }
@@ -108,7 +113,7 @@ static void init_conn(struct ble_device_conn *dev)
 	dev->disconnect = false;
 	dev->discovering = false;
 	dev->discovered = false;
-	dev->added_to_whitelist = false;
+	dev->added_to_allowlist = false;
 	dev->encode_discovered = false;
 	dev->shadow_updated = false;
 	dev->free = true;
@@ -146,7 +151,7 @@ void ble_conn_mgr_update_connections(void)
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		struct ble_device_conn *dev = &connected_ble_devices[i];
 
-		if (dev->connected || dev->added_to_whitelist) {
+		if (dev->connected || dev->added_to_allowlist) {
 			dev->disconnect = true;
 
 			for (int j = 0; j < CONFIG_BT_MAX_CONN; j++) {
@@ -165,7 +170,7 @@ void ble_conn_mgr_update_connections(void)
 			if (dev->disconnect) {
 				LOG_INF("cloud: disconnect device %s",
 					log_strdup(dev->addr));
-				ble_remove_from_whitelist(dev->addr);
+				ble_remove_from_allowlist(dev->addr);
 				disconnect_device_by_addr(dev->addr);
 				ble_conn_mgr_conn_reset(dev);
 				if (IS_ENABLED(CONFIG_SETTINGS)) {

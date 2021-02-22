@@ -36,8 +36,8 @@ typedef int (*notification_cb_t)(const char *ble_addr, const char *chrc_uuid,
 				  uint8_t *data, uint16_t len);
 
 int ble_init(void);
-void ble_add_to_whitelist(char *addr_str);
-void ble_remove_from_whitelist(char *addr_str);
+void ble_add_to_allowlist(char *addr_str);
+void ble_remove_from_allowlist(char *addr_str);
 void scan_start(bool print_scan);
 void ble_register_notify_callback(notification_cb_t callback);
 int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type);

@@ -31,6 +31,8 @@
 #define SUBSCRIPTION_LIMIT 16
 #define NOTIFICATION_QUEUE_LIMIT 10
 #define MAX_BUF_SIZE 11000
+#define STR(x) #x
+#define BT_UUID_GATT_CCC_VAL_STR STR(BT_UUID_GATT_CCC_VAL)
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
@@ -278,7 +280,7 @@ void send_notify_data(int unused1, int unused2, int unused3)
 
 		bool ccc = !rx_data->read;
 
-		if (strcmp(uuid, "2902") == 0) {
+		if (strcmp(uuid, BT_UUID_GATT_CCC_VAL_STR) == 0) {
 			ccc = true;
 			handle--;
 			LOG_INF("force ccc for handle %u", handle);
@@ -311,7 +313,8 @@ void send_notify_data(int unused1, int unused2, int unused3)
 				rx_data->length, &output);
 		} else if (rx_data->read && ccc) {
 			err = device_descriptor_value_encode(rx_data->addr_trunc,
-							     "2902", path,
+							     BT_UUID_GATT_CCC_VAL_STR,
+							     path,
 							     ((char *)rx_data->data),
 							     rx_data->length, 
 							     &output, false);
@@ -708,6 +711,23 @@ static uint8_t on_received(struct bt_conn *conn,
 	return ret;
 }
 
+static void send_sub(char *ble_addr, char *path, struct ble_msg *out,
+		     uint8_t *value)
+{
+	k_mutex_lock(&out->lock, K_FOREVER);
+	device_descriptor_value_encode(ble_addr,
+				       BT_UUID_GATT_CCC_VAL_STR,
+				       path, value, sizeof(value),
+				       out, true);
+	g2c_send(out->buf);
+	device_value_write_result_encode(ble_addr,
+					 BT_UUID_GATT_CCC_VAL_STR,
+					 path, value, sizeof(value),
+					 out);
+	g2c_send(out->buf);
+	k_mutex_unlock(&out->lock);
+}
+
 int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 {
 	int err;
@@ -762,45 +782,26 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 
 		uint8_t value[2] = {0, 0};
 
-		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_encode(ble_addr, "2902", path,
-					       value, sizeof(value),
-					       &output, true);
-		g2c_send(output.buf);
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
-		k_mutex_unlock(&output.lock);
+		send_sub(ble_addr, path, &output, value);
+		LOG_INF("Unsubscribe: Addr %s Handle %d",
+			log_strdup(ble_addr), handle);
 
 		sub_value[param_index] = 0;
 		sub_conn[param_index] = NULL;
 		if (curr_subs) {
 			curr_subs--;
 		}
-		LOG_INF("Unsubscribe: Addr %s Handle %d",
-			log_strdup(ble_addr), handle);
 	} else if (subscribed && (value_type != 0)) {
 		uint8_t value[2] = {
 			value_type,
 			0
 		};
 
+		send_sub(ble_addr, path, &output, value);
 		LOG_INF("Subscribe Dup: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
 			"Notify" : "Indicate");
-
-		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_encode(ble_addr, "2902", path,
-					       value, sizeof(value),
-					       &output, true);
-		g2c_send(output.buf);
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
-		k_mutex_unlock(&output.lock);
 
 	} else if (value_type == 0) {
 		LOG_DBG("Unsubscribe N/A: Addr %s Handle %d",
@@ -817,25 +818,15 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			LOG_ERR("Subscribe failed (err %d)", err);
 			goto end;
 		}
+		ble_conn_mgr_set_subscribed(handle, next_sub_index,
+					    connected_ptr);
 
 		uint8_t value[2] = {
 			value_type,
 			0
 		};
-		ble_conn_mgr_set_subscribed(handle, next_sub_index,
-					    connected_ptr);
 
-		k_mutex_lock(&output.lock, K_FOREVER);
-		device_descriptor_value_encode(ble_addr, "2902", path,
-					       value, sizeof(value),
-					       &output, true);
-		g2c_send(output.buf);
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
-		k_mutex_unlock(&output.lock);
-
+		send_sub(ble_addr, path, &output, value);
 		LOG_INF("Subscribe: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
@@ -1095,7 +1086,7 @@ void auto_conn_start_work_handler(struct k_work *work)
 {
 	int err;
 
-	/* Restart to scanning for whitelisted devices */
+	/* Restart to scanning for allowlisted devices */
 	struct bt_conn_le_create_param param = BT_CONN_LE_CREATE_PARAM_INIT(
 		BT_CONN_LE_OPT_NONE,
 		BT_GAP_SCAN_FAST_INTERVAL,
@@ -1154,7 +1145,7 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 	} else {
 		LOG_INF("Reconnected: %s", log_strdup(addr));
 	}
-	ble_remove_from_whitelist(addr_trunc);
+	ble_remove_from_allowlist(addr_trunc);
 
 	ui_led_set_pattern(UI_BLE_CONNECTED, PWM_DEV_1);
 
@@ -1194,7 +1185,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 
 	if (!connection_ptr->free) {
-		ble_add_to_whitelist(connection_ptr->addr);
+		ble_add_to_allowlist(connection_ptr->addr);
 	}
 
 	ui_led_set_pattern(UI_BLE_DISCONNECTED, PWM_DEV_1);
@@ -1349,12 +1340,12 @@ void scan_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(scan_timer, scan_timer_handler, NULL);
 
-void ble_add_to_whitelist(char *addr_str)
+void ble_add_to_allowlist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
-	LOG_INF("Whitelisting Address: %s", log_strdup(addr_str));
+	LOG_INF("Allowlisting Address: %s", log_strdup(addr_str));
 
 	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
@@ -1370,12 +1361,12 @@ void ble_add_to_whitelist(char *addr_str)
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 }
 
-void ble_remove_from_whitelist(char *addr_str)
+void ble_remove_from_allowlist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
-	LOG_INF("Removing Whitelist Address: %s", log_strdup(addr_str));
+	LOG_INF("Removing Allowlist Address: %s", log_strdup(addr_str));
 
 	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
@@ -1407,10 +1398,10 @@ void ble_stop_activity(void)
 		LOG_DBG("Error stopping autoconnect: %d", err);
 	}
 
-	LOG_INF("Clear whitelist...");
+	LOG_INF("Clear allowlist...");
 	err = bt_le_whitelist_clear();
 	if (err) {
-		LOG_DBG("Error clearing whitelist: %d", err);
+		LOG_DBG("Error clearing allowlist: %d", err);
 	}
 
 	struct ble_device_conn *conn;

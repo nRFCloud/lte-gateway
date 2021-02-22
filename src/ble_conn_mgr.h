@@ -39,7 +39,7 @@ struct ble_device_conn {
 	bool free;
 	bool discovered;
 	bool encode_discovered;
-	bool added_to_whitelist;
+	bool added_to_allowlist;
 	bool shadow_updated;
 	bool disconnect;
 };

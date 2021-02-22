@@ -366,7 +366,7 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 
 	if (!notify) {
 		shell_print(shell, "   MAC, connected, discovered, shadow"
-				   " updated, blocklist status, ctrld by,"
+				   " updated, denylist status, ctrld by,"
 				   " num UUIDs");
 	}
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
@@ -383,8 +383,8 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 			    (dev->discovering ? "DISCOVERING" : "not dscvred"),
 			    dev->shadow_updated ? "SHADOW UPDATED" :
 			    "shadow not set",
-			    dev->added_to_whitelist ? "CONN ALLOWED" :
-			    "conn blocked",
+			    dev->added_to_allowlist ? "CONN ALLOWED" :
+			    "conn denied",
 			    ble_conn_mgr_enabled(dev->addr) ? "CLOUD" : "local",
 			    (unsigned int)dev->num_pairs
 			   );
