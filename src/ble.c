@@ -31,6 +31,8 @@
 #define SUBSCRIPTION_LIMIT 16
 #define NOTIFICATION_QUEUE_LIMIT 10
 #define MAX_BUF_SIZE 11000
+#define STR(x) #x
+#define BT_UUID_GATT_CCC_VAL_STR STR(BT_UUID_GATT_CCC_VAL)
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ble, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
@@ -239,114 +241,105 @@ void send_notify_data(int unused1, int unused2, int unused3)
 		int err;
 		struct rec_data_t *rx_data = k_fifo_get(&rec_fifo, K_NO_WAIT);
 
-		if (rx_data != NULL) {
-			err = ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc,
-						      &connected_ptr);
-			if (err) {
-				LOG_ERR("Unable to find connection: %d", err);
-				goto cleanup;
-			}
-
-			if (rx_data->read) {
-				LOG_INF("Read: Addr %s Handle %d",
-					log_strdup(rx_data->addr_trunc),
-					rx_data->read_params.single.handle);
-
-				err = ble_conn_mgr_get_uuid_by_handle(
-					rx_data->read_params.single.handle,
-					uuid, connected_ptr);
-				if (err) {
-					LOG_ERR("Unable to convert handle: %d",
-						err);
-					goto cleanup;
-				}
-
-				err = ble_conn_mgr_generate_path(connected_ptr,
-					rx_data->read_params.single.handle,
-					path, false);
-				if (err) {
-					LOG_ERR("Unable to generate path: %d",
-						err);
-					goto cleanup;
-				}
-
-				err = device_chrc_read_encode(
-					rx_data->addr_trunc,
-					uuid, path, ((char *)rx_data->data),
-					rx_data->length, &output);
-				if (err) {
-					LOG_ERR("Unable to encode: %d", err);
-					goto cleanup;
-				}
-				err = g2c_send(output.buf);
-				if (err) {
-					LOG_ERR("Unable to send: %d", err);
-					goto cleanup;
-				}
-
-			} else {
-				LOG_DBG("Notify Addr %s Handle %d",
-					log_strdup(rx_data->addr_trunc),
-					rx_data->sub_params.value_handle);
-
-				err = ble_conn_mgr_get_uuid_by_handle(
-					rx_data->sub_params.value_handle, uuid,
-					connected_ptr);
-				if (err) {
-					LOG_ERR("Unable to find connection: %d",
-						err);
-					goto cleanup;
-				}
-
-				err = ble_conn_mgr_generate_path(connected_ptr,
-					rx_data->sub_params.value_handle,
-					path, true);
-				if (err) {
-					LOG_ERR("Unable to generate path: %d",
-						err);
-					goto cleanup;
-				}
-
-				LOG_HEXDUMP_DBG(rx_data->data, rx_data->length,
-						"notify");
-
-				if (notify_callback) {
-					err = notify_callback(rx_data->addr_trunc,
-							      uuid,
-							      rx_data->data,
-							      rx_data->length);
-					if (err) {
-						/* callback should return 0
-						 * if it did not process the
-						 * data
-						 */
-						goto cleanup;
-					}
-				}
-
-				err = device_value_changed_encode(
-					rx_data->addr_trunc,
-					uuid, path, ((char *)rx_data->data),
-					rx_data->length, &output);
-				if (err) {
-					LOG_ERR("Unable to encode: %d", err);
-					goto cleanup;
-				}
-				err = g2c_send(output.buf);
-				if (err) {
-					LOG_ERR("Unable to send: %d", err);
-					goto cleanup;
-				}
-			}
-
-cleanup:
-			k_free(rx_data);
-			atomic_dec(&queued_notifications);
-
-		} else {
+		if (rx_data == NULL) {
 			/* no pending notifications, so let others take turn */
 			k_sleep(K_MSEC(10));
+			continue;
 		}
+		err = ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc,
+					      &connected_ptr);
+		if (err) {
+			LOG_ERR("Unable to find connection: %d", err);
+			goto cleanup;
+		}
+
+		uint16_t handle;
+
+		if (rx_data->read) {
+			handle = rx_data->read_params.single.handle;
+			LOG_INF("Read: Addr %s Handle %d",
+				log_strdup(rx_data->addr_trunc), handle);
+		} else {
+			handle = rx_data->sub_params.value_handle;
+			LOG_DBG("Notify Addr %s Handle %d",
+				log_strdup(rx_data->addr_trunc), handle);
+		}
+
+		err = ble_conn_mgr_get_uuid_by_handle(handle, uuid,
+						      connected_ptr);
+		if (err) {
+			if (discover_in_progress) {
+				LOG_INF("ignoring notification on %s due to BLE"
+					" discovery in progress",
+					log_strdup(rx_data->addr_trunc));
+			} else {
+				LOG_ERR("Unable to convert handle: %d", err);
+			}
+			goto cleanup;
+		}
+
+		bool ccc = !rx_data->read;
+
+		if (strcmp(uuid, BT_UUID_GATT_CCC_VAL_STR) == 0) {
+			ccc = true;
+			handle--;
+			LOG_INF("force ccc for handle %u", handle);
+		}
+
+		err = ble_conn_mgr_generate_path(connected_ptr, handle, path,
+						 ccc);
+		if (err) {
+			LOG_ERR("Unable to generate path: %d", err);
+			goto cleanup;
+		}
+
+		LOG_HEXDUMP_DBG(rx_data->data, rx_data->length, "notify");
+
+		if (!rx_data->read && notify_callback) {
+			err = notify_callback(rx_data->addr_trunc, uuid,
+					      rx_data->data, rx_data->length);
+			if (err) {
+				/* callback should return 0 if it did not
+				 * process the data
+				 */
+				goto cleanup;
+			}
+		}
+
+		k_mutex_lock(&output.lock, K_FOREVER);
+		if (rx_data->read && !ccc) {
+			err = device_chrc_read_encode(rx_data->addr_trunc,
+				uuid, path, ((char *)rx_data->data),
+				rx_data->length, &output);
+		} else if (rx_data->read && ccc) {
+			err = device_descriptor_value_encode(rx_data->addr_trunc,
+							     BT_UUID_GATT_CCC_VAL_STR,
+							     path,
+							     ((char *)rx_data->data),
+							     rx_data->length, 
+							     &output, false);
+		} else {
+			err = device_value_changed_encode(rx_data->addr_trunc,
+				uuid, path, ((char *)rx_data->data),
+				rx_data->length, &output);
+		}
+		if (err) {
+			k_mutex_unlock(&output.lock);
+			LOG_ERR("Unable to encode: %d", err);
+			goto cleanup;
+		}
+		LOG_DBG("uuid %s, path %s, len %u, json %s",
+			log_strdup(uuid), log_strdup(path),
+			rx_data->length, log_strdup(output.buf));
+		err = g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
+		if (err) {
+			LOG_ERR("Unable to send: %d", err);
+		}
+
+cleanup:
+		k_free(rx_data);
+		atomic_dec(&queued_notifications);
 	}
 }
 
@@ -385,8 +378,15 @@ static void discovery_service_not_found(struct bt_conn *conn, void *ctx)
 
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connected_ptr);
 
-	connected_ptr->encode_discovered = true;
-	connected_ptr->discovered = true;
+	/* only set discovered true and send results if it seems we were
+	 * successful at doing a full discovery
+	 */
+	if (connected_ptr->connected && connected_ptr->num_pairs) {
+		connected_ptr->encode_discovered = true;
+		connected_ptr->discovered = true;
+	} else {
+		LOG_WRN("Discovery not completed");
+	}
 	connected_ptr->discovering = false;
 	discover_in_progress = false;
 
@@ -449,14 +449,16 @@ static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 		LOG_INF("Read Addr %s", log_strdup(addr_trunc));
 
 		struct rec_data_t read_data = {
+			.fifo_reserved = NULL,
 			.length = length,
 			.read = true
 		};
 
-		memcpy(&read_data.addr_trunc, addr_trunc, strlen(addr_trunc));
-		memcpy(&read_data.data, data, length);
+		memset(&read_data.sub_params, 0, sizeof(read_data.sub_params));
 		memcpy(&read_data.read_params, params,
 			sizeof(struct bt_gatt_read_params));
+		memcpy(&read_data.addr_trunc, addr_trunc, strlen(addr_trunc));
+		memcpy(&read_data.data, data, length);
 
 		size_t size = sizeof(struct rec_data_t);
 
@@ -477,26 +479,16 @@ static uint8_t gatt_read_callback(struct bt_conn *conn, uint8_t err,
 	return ret;
 }
 
-int gatt_read(char *ble_addr, char *chrc_uuid)
+int gatt_read_handle(char *ble_addr, uint16_t handle, bool ccc)
 {
 	int err;
 	static struct bt_gatt_read_params params;
 	struct bt_conn *conn;
 	bt_addr_le_t addr;
-	struct ble_device_conn *connected_ptr;
-	uint16_t handle;
 
-	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
-	if (err) {
-		return err;
+	if (ccc) {
+		handle++;
 	}
-
-	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
-					      connected_ptr);
-	if (err) {
-		return err;
-	}
-
 	params.handle_count = 1;
 	params.single.handle = handle;
 	params.func = gatt_read_callback;
@@ -516,6 +508,26 @@ int gatt_read(char *ble_addr, char *chrc_uuid)
 	err = bt_gatt_read(conn, &params);
 	bt_conn_unref(conn);
 	return err;
+}
+
+int gatt_read(char *ble_addr, char *chrc_uuid, bool ccc)
+{
+	int err;
+	struct ble_device_conn *connected_ptr;
+	uint16_t handle;
+
+	err = ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid,
+					      connected_ptr);
+	if (err) {
+		return err;
+	}
+
+	return gatt_read_handle(ble_addr, handle, ccc);
 }
 
 static void on_sent(struct bt_conn *conn, uint8_t err,
@@ -638,8 +650,6 @@ static uint8_t on_received(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-	uint32_t lock = irq_lock();
-
 	if ((length > 0) && (data != NULL)) {
 
 		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
@@ -650,6 +660,7 @@ static uint8_t on_received(struct bt_conn *conn,
 		bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
 		struct rec_data_t tx_data = {
+			.read = false,
 			.length = length
 		};
 
@@ -697,9 +708,24 @@ static uint8_t on_received(struct bt_conn *conn,
 		}
 	}
 
-	irq_unlock(lock);
-
 	return ret;
+}
+
+static void send_sub(char *ble_addr, char *path, struct ble_msg *out,
+		     uint8_t *value)
+{
+	k_mutex_lock(&out->lock, K_FOREVER);
+	device_descriptor_value_encode(ble_addr,
+				       BT_UUID_GATT_CCC_VAL_STR,
+				       path, value, sizeof(value),
+				       out, true);
+	g2c_send(out->buf);
+	device_value_write_result_encode(ble_addr,
+					 BT_UUID_GATT_CCC_VAL_STR,
+					 path, value, sizeof(value),
+					 out);
+	g2c_send(out->buf);
+	k_mutex_unlock(&out->lock);
 }
 
 int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
@@ -756,41 +782,27 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 
 		uint8_t value[2] = {0, 0};
 
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
-		g2c_send(output.buf);
-
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
+		send_sub(ble_addr, path, &output, value);
+		LOG_INF("Unsubscribe: Addr %s Handle %d",
+			log_strdup(ble_addr), handle);
 
 		sub_value[param_index] = 0;
 		sub_conn[param_index] = NULL;
 		if (curr_subs) {
 			curr_subs--;
 		}
-		LOG_INF("Unsubscribe: Addr %s Handle %d",
-			log_strdup(ble_addr), handle);
 	} else if (subscribed && (value_type != 0)) {
 		uint8_t value[2] = {
 			value_type,
 			0
 		};
 
+		send_sub(ble_addr, path, &output, value);
 		LOG_INF("Subscribe Dup: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
 			"Notify" : "Indicate");
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
-		g2c_send(output.buf);
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
+
 	} else if (value_type == 0) {
 		LOG_DBG("Unsubscribe N/A: Addr %s Handle %d",
 			log_strdup(ble_addr), handle);
@@ -806,23 +818,15 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			LOG_ERR("Subscribe failed (err %d)", err);
 			goto end;
 		}
+		ble_conn_mgr_set_subscribed(handle, next_sub_index,
+					    connected_ptr);
 
 		uint8_t value[2] = {
 			value_type,
 			0
 		};
-		ble_conn_mgr_set_subscribed(handle, next_sub_index,
-					    connected_ptr);
-		device_descriptor_value_changed_encode(ble_addr, "2902", path,
-						       value, sizeof(value),
-						       &output);
-		g2c_send(output.buf);
 
-		device_value_write_result_encode(ble_addr, "2902", path,
-						 value, sizeof(value),
-						 &output);
-		g2c_send(output.buf);
-
+		send_sub(ble_addr, path, &output, value);
 		LOG_INF("Subscribe: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
@@ -837,8 +841,10 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			SUBSCRIPTION_LIMIT);
 
 		/* Send error when limit is reached. */
+		k_mutex_lock(&output.lock, K_FOREVER);
 		device_error_encode(ble_addr, msg, &output);
 		g2c_send(output.buf);
+		k_mutex_unlock(&output.lock);
 	}
 
 end:
@@ -982,6 +988,9 @@ uint8_t ble_discover(char *ble_addr)
 
 		if (!connection_ptr->discovered) {
 			if (connection_ptr->num_pairs) {
+				LOG_INF("Marking device as discovered; "
+					"num pairs = %u",
+					connection_ptr->num_pairs);
 				connection_ptr->discovering = false;
 				connection_ptr->discovered = true;
 				connection_ptr->encode_discovered = true;
@@ -1048,10 +1057,12 @@ int setup_gw_shadow(void)
 {
 	int err;
 
+	k_mutex_lock(&output.lock, K_FOREVER);
 	err = gateway_shadow_data_encode(output.buf, output.len);
 	if (!err) {
 		shadow_publish(output.buf);
 	}
+	k_mutex_unlock(&output.lock);
 	return err;
 }
 
@@ -1061,11 +1072,13 @@ int update_shadow(char *ble_address, bool connecting, bool connected)
 
 	LOG_DBG("connecting=%u, connected=%u",
 		connecting, connected);
+	k_mutex_lock(&output.lock, K_FOREVER);
 	err = device_shadow_data_encode(ble_address, connecting, connected,
 					&output);
 	if (!err) {
 		shadow_publish(output.buf);
 	}
+	k_mutex_unlock(&output.lock);
 	return err;
 }
 
@@ -1073,7 +1086,7 @@ void auto_conn_start_work_handler(struct k_work *work)
 {
 	int err;
 
-	/* Restart to scanning for whitelisted devices */
+	/* Restart to scanning for allowlisted devices */
 	struct bt_conn_le_create_param param = BT_CONN_LE_CREATE_PARAM_INIT(
 		BT_CONN_LE_OPT_NONE,
 		BT_GAP_SCAN_FAST_INTERVAL,
@@ -1119,8 +1132,11 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 		return;
 	}
 
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_connect_result_encode(addr_trunc, true, &output);
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
+
 	if (!connection_ptr->connected) {
 		LOG_INF("Connected: %s", log_strdup(addr));
 		update_shadow(addr_trunc, false, true);
@@ -1129,7 +1145,7 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 	} else {
 		LOG_INF("Reconnected: %s", log_strdup(addr));
 	}
-	ble_remove_from_whitelist(addr_trunc);
+	ble_remove_from_allowlist(addr_trunc);
 
 	ui_led_set_pattern(UI_BLE_CONNECTED, PWM_DEV_1);
 
@@ -1150,8 +1166,11 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
+
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_disconnect_result_encode(addr_trunc, false, &output);
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
 
 	/* if device disconnected on purpose, don't bother updating
 	 * shadow; it will likely reconnect shortly
@@ -1166,7 +1185,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 
 	if (!connection_ptr->free) {
-		ble_add_to_whitelist(connection_ptr->addr);
+		ble_add_to_allowlist(connection_ptr->addr);
 	}
 
 	ui_led_set_pattern(UI_BLE_DISCONNECTED, PWM_DEV_1);
@@ -1199,9 +1218,11 @@ static bool data_cb(struct bt_data *data, void *user_data)
 void ble_device_found_enc_handler(struct k_work *work)
 {
 	LOG_DBG("Encoding scan...");
+	k_mutex_lock(&output.lock, K_FOREVER);
 	device_found_encode(num_devices_found, &output);
 	LOG_DBG("Sending scan...");
 	g2c_send(output.buf);
+	k_mutex_unlock(&output.lock);
 }
 
 K_WORK_DEFINE(ble_device_encode_work, ble_device_found_enc_handler);
@@ -1319,12 +1340,12 @@ void scan_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(scan_timer, scan_timer_handler, NULL);
 
-void ble_add_to_whitelist(char *addr_str)
+void ble_add_to_allowlist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
-	LOG_INF("Whitelisting Address: %s", log_strdup(addr_str));
+	LOG_INF("Allowlisting Address: %s", log_strdup(addr_str));
 
 	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
@@ -1340,12 +1361,12 @@ void ble_add_to_whitelist(char *addr_str)
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
 }
 
-void ble_remove_from_whitelist(char *addr_str)
+void ble_remove_from_allowlist(char *addr_str)
 {
 	int err;
 	bt_addr_le_t addr;
 
-	LOG_INF("Removing Whitelist Address: %s", log_strdup(addr_str));
+	LOG_INF("Removing Allowlist Address: %s", log_strdup(addr_str));
 
 	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
@@ -1377,10 +1398,10 @@ void ble_stop_activity(void)
 		LOG_DBG("Error stopping autoconnect: %d", err);
 	}
 
-	LOG_INF("Clear whitelist...");
+	LOG_INF("Clear allowlist...");
 	err = bt_le_whitelist_clear();
 	if (err) {
-		LOG_DBG("Error clearing whitelist: %d", err);
+		LOG_DBG("Error clearing allowlist: %d", err);
 	}
 
 	struct ble_device_conn *conn;
@@ -1401,6 +1422,7 @@ void ble_stop_activity(void)
 
 int device_discovery_send(struct ble_device_conn *conn_ptr)
 {
+	k_mutex_lock(&output.lock, K_FOREVER);
 	int ret = device_discovery_encode(conn_ptr, &output);
 
 	if (!ret) {
@@ -1409,13 +1431,13 @@ int device_discovery_send(struct ble_device_conn *conn_ptr)
 		 */
 		strcat(output.buf, "}}}}}");
 
-		LOG_DBG("JSON Size: %d", strlen(output.buf));
-		LOG_INF("Sending discovery...");
+		LOG_INF("Sending discovery; JSON Size: %d", strlen(output.buf));
 
 		/* TODO: Move out of decode. */
 		g2c_send(output.buf);
 	}
 	memset(output.buf, 0, output.len);
+	k_mutex_unlock(&output.lock);
 
 	return ret;
 }
@@ -1475,6 +1497,8 @@ int ble_init(void)
 	int err;
 
 	LOG_INF("Initializing Bluetooth..");
+	k_mutex_init(&output.lock);
+
 	err = bt_enable(ble_ready);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)", err);
