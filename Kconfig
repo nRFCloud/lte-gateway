@@ -217,6 +217,7 @@ config GATEWAY_SHELL
 	select SHELL_LOG_BACKEND
 	select SHELL_VT100_COLORS
 	select SHELL_BACKEND_SERIAL
+	select SHELL_CMDS_SELECT
 
 config STARTING_LOG_OVERRIDE
 	bool "Different logging level at boot"
