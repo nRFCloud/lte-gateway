@@ -771,7 +771,7 @@ static int svc_attr_encode(char *uuid, char *path,
 
 	/* Print services and add to wrapper */
 	CJPRINT(services, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-	LOG_DBG("JSON: %s", service_buffer);
+	LOG_DBG("JSON: %s", log_strdup(service_buffer));
 	LOG_DBG("Encoding service %s", log_strdup(uuid));
 	ret = device_discover_add_service(service_buffer, msg);
 
@@ -839,7 +839,7 @@ static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 
 	/* Print parent_chrhc and add to service */
 	CJPRINT(parent_chrc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-	LOG_DBG("JSON: %s", service_buffer);
+	LOG_DBG("JSON: %s", log_strdup(service_buffer));
 	ret = device_discover_add_chrc(service_buffer, msg);
 
 cleanup:
