@@ -69,7 +69,6 @@ int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
 				    struct ble_device_conn *conn_ptr);
 void ble_conn_mgr_init();
 int ble_conn_set_connected(char *addr, bool connected);
-int ble_conn_set_disconnected(char *addr);
 int ble_conn_mgr_set_subscribed(uint16_t handle, uint8_t sub_index,
 				struct ble_device_conn *conn_ptr);
 int ble_conn_mgr_remove_subscribed(uint16_t handle,

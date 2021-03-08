@@ -14,6 +14,7 @@
 #include <bluetooth/gatt_dm.h>
 #include <bluetooth/scan.h>
 #include <bluetooth/hci.h>
+#include <bluetooth/hci_err.h>
 #include <dk_buttons_and_leds.h>
 #include <settings/settings.h>
 
@@ -422,7 +423,7 @@ static void discovery_error_found(struct bt_conn *conn, int err, void *ctx)
 	}
 
 	/* Disconnect? */
-	bt_conn_disconnect(conn, 0x16);
+	bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 
 	/* check scan waiting */
 	if (scan_waiting) {
@@ -501,7 +502,7 @@ int gatt_read_handle(char *ble_addr, uint16_t handle, bool ccc)
 
 	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 	if (conn == NULL) {
-		LOG_ERR("Null Conn object (err)");
+		LOG_ERR("Null Conn object");
 		return -EINVAL;
 	}
 
@@ -572,7 +573,7 @@ int gatt_write(char *ble_addr, char *chrc_uuid, uint8_t *data,
 
 	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 	if (conn == NULL) {
-		LOG_ERR("Null Conn object (err)");
+		LOG_ERR("Null Conn object");
 		return -EINVAL;
 	}
 
@@ -962,7 +963,7 @@ static struct bt_gatt_dm_cb discovery_cb = {
 	.error_found = discovery_error_found,
 };
 
-uint8_t ble_discover(char *ble_addr)
+int ble_discover(char *ble_addr)
 {
 	int err;
 	struct bt_conn *conn;
@@ -980,8 +981,8 @@ uint8_t ble_discover(char *ble_addr)
 
 		conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 		if (conn == NULL) {
-			LOG_DBG("Null Conn object (err %d)", err);
-			return 1;
+			LOG_DBG("ERROR: Null Conn object");
+			return -EINVAL;
 		}
 
 		ble_conn_mgr_get_conn_by_addr(ble_addr, &connection_ptr);
@@ -1005,10 +1006,10 @@ uint8_t ble_discover(char *ble_addr)
 
 				/* Disconnect device. */
 				LOG_INF("Disconnecting from device...");
-				bt_conn_disconnect(conn, 0x16);
+				bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 
 				bt_conn_unref(conn);
-				ble_conn_set_disconnected(ble_addr);
+				ble_conn_set_connected(ble_addr, false);
 				return err;
 			}
 			discover_in_progress = true;
@@ -1017,7 +1018,7 @@ uint8_t ble_discover(char *ble_addr)
 			connection_ptr->encode_discovered = true;
 		}
 	} else {
-		return 1;
+		return -EBUSY;
 	}
 
 	bt_conn_unref(conn);
@@ -1025,7 +1026,7 @@ uint8_t ble_discover(char *ble_addr)
 }
 
 
-uint8_t disconnect_device_by_addr(char *ble_addr)
+int disconnect_device_by_addr(char *ble_addr)
 {
 	int err;
 	struct bt_conn *conn;
@@ -1039,26 +1040,32 @@ uint8_t disconnect_device_by_addr(char *ble_addr)
 
 	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
 	if (conn == NULL) {
-		LOG_DBG("Null Conn object (err %d)", err);
-		return 1;
+		LOG_DBG("ERROR: Null Conn object");
+		return -EINVAL;
 	}
 
 	/* cloud commanded this, so remove any notifications or indications */
-	ble_subscribe_device(conn, false);
+	err = ble_subscribe_device(conn, false);
+	if (err) {
+		LOG_ERR("Error unsubscribing device: %d", err);
+	}
 
 	/* Disconnect device. */
-	bt_conn_disconnect(conn, BT_HCI_ERR_LOCALHOST_TERM_CONN);
+	err = bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	if (err) {
+		LOG_ERR("Error disconnecting: %d", err);
+	}
 	bt_conn_unref(conn);
 
 	return err;
 }
 
-int setup_gw_shadow(void)
+int setup_gw_shadow(void *modem)
 {
 	int err;
 
 	k_mutex_lock(&output.lock, K_FOREVER);
-	err = gateway_shadow_data_encode(output.buf, output.len);
+	err = gateway_shadow_data_encode(modem, output.buf, output.len);
 	if (!err) {
 		shadow_publish(output.buf);
 	}
@@ -1094,10 +1101,19 @@ void auto_conn_start_work_handler(struct k_work *work)
 
 	err = bt_conn_le_create_auto(&param, BT_LE_CONN_PARAM_DEFAULT);
 
-	if (err) {
-		LOG_INF("Connection exists");
+	if (err == -EALREADY) {
+		LOG_INF("Auto connect already running");
+	} else if (err == -EINVAL) {
+		LOG_INF("Auto connect not necessary or invalid");
+	} else if (err == -EAGAIN) {
+		LOG_WRN("Device not ready; try starting auto connect later");
+		k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
+	} else if (err == -ENOMEM) {
+		LOG_ERR("Out of memory enabling auto connect");
+	} else if (err) {
+		LOG_ERR("Error enabling auto connect: %d", err);
 	} else {
-		LOG_INF("Connection creation pending");
+		LOG_INF("Auto connect started");
 	}
 }
 
@@ -1145,7 +1161,11 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 	} else {
 		LOG_INF("Reconnected: %s", log_strdup(addr));
 	}
-	ble_remove_from_allowlist(addr_trunc);
+	if (connection_ptr->added_to_allowlist) {
+		if (!ble_add_to_allowlist(addr_trunc, false)) {
+			connection_ptr->added_to_allowlist = false;
+		}
+	}
 
 	ui_led_set_pattern(UI_BLE_CONNECTED, PWM_DEV_1);
 
@@ -1177,15 +1197,17 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	 */
 	if (reason != BT_HCI_ERR_REMOTE_USER_TERM_CONN) {
 		(void)update_shadow(addr_trunc, false, false);
-		ble_conn_set_disconnected(addr_trunc);
 		LOG_INF("Disconnected: %s (reason 0x%02x)", log_strdup(addr),
 			reason);
+		ble_conn_set_connected(addr_trunc, false);
 	} else {
 		LOG_INF("Disconnected: temporary");
 	}
 
-	if (!connection_ptr->free) {
-		ble_add_to_allowlist(connection_ptr->addr);
+	if (!connection_ptr->free && !connection_ptr->added_to_allowlist) {
+		if (!ble_add_to_allowlist(connection_ptr->addr, true)) {
+			connection_ptr->added_to_allowlist = true;
+		}
 	}
 
 	ui_led_set_pattern(UI_BLE_DISCONNECTED, PWM_DEV_1);
@@ -1340,46 +1362,32 @@ void scan_timer_handler(struct k_timer *timer)
 
 K_TIMER_DEFINE(scan_timer, scan_timer_handler, NULL);
 
-void ble_add_to_allowlist(char *addr_str)
+int ble_add_to_allowlist(char *addr_str, bool add)
 {
 	int err;
 	bt_addr_le_t addr;
 
-	LOG_INF("Allowlisting Address: %s", log_strdup(addr_str));
-
-	err = bt_addr_le_from_str(addr_str, "random", &addr);
-	if (err) {
-		LOG_ERR("Invalid peer address (err %d)", err);
-		return;
-	}
+	LOG_INF("%s allowlist: %s", add ? "Adding address to" : "Removing address from",
+		log_strdup(addr_str));
 
 	bt_conn_create_auto_stop();
 
-	bt_le_whitelist_add(&addr);
-
-	/* Start the timer to begin scanning again. */
-	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
-}
-
-void ble_remove_from_allowlist(char *addr_str)
-{
-	int err;
-	bt_addr_le_t addr;
-
-	LOG_INF("Removing Allowlist Address: %s", log_strdup(addr_str));
-
 	err = bt_addr_le_from_str(addr_str, "random", &addr);
 	if (err) {
-		LOG_ERR("Invalid peer address (err %d)", err);
-		return;
+		LOG_ERR("Invalid peer address: %d", err);
+		goto done;
 	}
 
-	bt_conn_create_auto_stop();
+	err = add ? bt_le_whitelist_add(&addr) : bt_le_whitelist_rem(&addr);
+	if (err) {
+		LOG_ERR("Error %s allowlist: %d", add ? "adding to" : "removing from", err);
+	}
 
-	bt_le_whitelist_rem(&addr);
-
+done:
 	/* Start the timer to begin scanning again. */
 	k_timer_start(&auto_conn_start_timer, K_SECONDS(3), K_SECONDS(0));
+
+	return err;
 }
 
 void ble_stop_activity(void)
