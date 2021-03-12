@@ -1140,18 +1140,13 @@ static void set_at_prompt(const struct shell *shell, bool at_mode)
 		normal_prompt = false;
 
 		shell_print(shell, "Type 'exit' to exit AT mode");
-		shell_set_unfiltered_argument(0);
 		shell_prompt_change(shell, "");
 
-		/* hack: manually turn color mode back on; from
-		 * zephyr/subsys/shell/shell_ops.h:flag_use_colors_set() */
-		shell->ctx->internal.flags.use_colors = false;
-		//flag_use_colors_set(shell, false);
+		shell_use_colors_set(shell, false);
 
 	} else if (!at_mode && !normal_prompt) {
 		normal_prompt = true;
 
-		shell_set_unfiltered_argument(CONFIG_SHELL_ARGC_MAX);
 		shell_prompt_change(shell, CONFIG_SHELL_PROMPT_SECURE);
 
 		/* hack: manually turn off select mode as is done in
@@ -1161,10 +1156,7 @@ static void set_at_prompt(const struct shell *shell, bool at_mode)
 		 */
 		shell_set_root_cmd(NULL);
 
-		/* hack: manually turn color mode back on; from
-		 * zephyr/subsys/shell/shell_ops.h:flag_use_colors_set() */
-		shell->ctx->internal.flags.use_colors = true;
-		//flag_use_colors_set(shell, true);
+		shell_use_colors_set(shell, true);
 	}
 }
 
@@ -1227,7 +1219,6 @@ static int app_exit(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 
 	set_at_prompt(shell, false);
-	shell_set_unfiltered_argument(CONFIG_SHELL_ARGC_MAX);
 	return 0;
 }
 
@@ -1420,8 +1411,7 @@ static int cmd_login(const struct shell *shell, size_t argc, char **argv)
 
 	if (check_passwd(argv[1]) == 0) {
 		attempts = 0;
-		/* not public: shell_obscure_set(shell, false); */
-		shell->ctx->internal.flags.obscure = false;
+		shell_obscure_set(shell, false);
 		z_shell_history_purge(shell->history);
 		shell_set_root_cmd(NULL);
 		shell_prompt_change(shell, CONFIG_SHELL_PROMPT_SECURE);
@@ -1468,8 +1458,7 @@ static int cmd_passwd(const struct shell *shell, size_t argc, char **argv)
 static int cmd_logout(const struct shell *shell, size_t argc, char **argv)
 {
 	shell_set_root_cmd("login");
-	/* not public: shell_obscure_set(shell, true); */
-	shell->ctx->internal.flags.obscure = true;
+	shell_obscure_set(shell, true);
 	shell_prompt_change(shell, CONFIG_SHELL_PROMPT_UART);
 	shell_print(shell, "\n");
 	return 0;
@@ -1528,7 +1517,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
 	SHELL_CMD(dis, &dynamic_ble_dis,
 		  "<all | MAC [all | handle]> Disable "
 		  "notifications on BLE device(s).", NULL),
-       SHELL_CMD(fota, &dynamic_ble_fota,
+	SHELL_CMD(fota, &dynamic_ble_fota,
 		 "<addr> <host> <path> <size> <final> "
 		 "[ver] [crc] [sec_tag] [frag_size] [apn] "
 		  "BLE firmware over-the-air update.", NULL),
@@ -1543,7 +1532,7 @@ SHELL_CMD_ARG_REGISTER(fota, NULL, "<host> <path> [sec_tag] [frag_size] [apn] "
 SHELL_CMD_ARG_REGISTER(at, NULL, "<enable | AT<cmd> | exit> Execute an AT "
 				 "command.  Use <at enable> first to remain "
 				 "in AT command mode until 'exit'.",
-		       app_cmd_at, 2, 0);
+		       app_cmd_at, 2, SHELL_OPT_ARG_RAW);
 SHELL_CMD_ARG_REGISTER(session, NULL, "<0 | 1> Get or change persistent "
 				      "sessions flag.",
 		       cmd_session, 0, 1);
