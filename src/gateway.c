@@ -11,6 +11,9 @@
 #include <nrf9160.h>
 #include <hal/nrf_gpio.h>
 #include <net/cloud.h>
+#if defined(CONFIG_NRF_MODEM_LIB)
+#include <nrf_socket.h>
+#endif
 
 #include "nrf_cloud_codec.h"
 #include "gateway.h"
@@ -27,10 +30,16 @@
 
 LOG_MODULE_REGISTER(gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
+#define AT_CMNG_READ_LEN 97
+
 #define CLOUD_PROC_STACK_SIZE 2048
 #define CLOUD_PROC_PRIORITY 5
 
 #define QUEUE_CHAR_READS
+
+#define GET_PSK_ID "AT%CMNG=2,16842753,4"
+#define GET_PSK_ID_LEN (sizeof(GET_PSK_ID)-1)
+#define GET_PSK_ID_ERR "ERROR"
 
 /* Uncomment below to enable writing characteristics from cloud_data_process()
  * rather than from gateway_handler(). However, writing added too much data
@@ -41,6 +50,8 @@ LOG_MODULE_REGISTER(gateway, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 #define VALUE_BUF_SIZE 256
 static uint8_t value_buf[VALUE_BUF_SIZE];
+
+char gateway_id[NRF_CLOUD_CLIENT_ID_LEN+1];
 
 struct cloud_data_t {
 	void *fifo_reserved;
@@ -410,6 +421,82 @@ void init_gateway(void)
 {
 	nct_register_gateway_handler(gateway_handler);
 	ble_codec_init();
+}
+
+int gw_client_id_get(char **id, size_t *id_len)
+{
+	char psk_buf[AT_CMNG_READ_LEN];
+	int bytes_written;
+	int bytes_read;
+	int at_socket_fd;
+	int ret = 0;
+	int err;
+
+	at_socket_fd = nrf_socket(NRF_AF_LTE, NRF_SOCK_DGRAM, NRF_PROTO_AT);
+	if (at_socket_fd < 0) {
+		return -EIO;
+	}
+
+	bytes_written = nrf_write(at_socket_fd, GET_PSK_ID, GET_PSK_ID_LEN);
+	if (bytes_written != GET_PSK_ID_LEN) {
+		ret = -EIO;
+		goto cleanup;
+	}
+	bytes_read = nrf_read(at_socket_fd, psk_buf, AT_CMNG_READ_LEN);
+	if (bytes_read != AT_CMNG_READ_LEN) {
+		ret = -EIO;
+		goto cleanup;
+	}
+
+	if (!strncmp(psk_buf, GET_PSK_ID_ERR, strlen(GET_PSK_ID_ERR))) {
+		strcpy(gateway_id, "no-psk-ids");
+		*id = gateway_id;
+		*id_len = strlen(*id);
+	} else {
+/*
+ * below, we extract the 'nrf-124578' portion as the gateway_id
+ * AT%CMNG=2,16842753,4 returns:
+ * %CMNG: 16842753,
+ * 4,
+ * "0404040404040404040404040404040404040404040404040404040404040404",
+ * "nrf-124578"
+ */
+		int ofs;
+		int i;
+		int len = strlen(psk_buf);
+		char *ptr = psk_buf;
+		const char *delimiters = ",";
+
+		LOG_DBG("ID is inside this: %s", log_strdup(psk_buf));
+		for (i = 0; i < 3; i++) {
+			ofs = strcspn(ptr, delimiters) + 1;
+			ptr += ofs;
+			len -= ofs;
+			if (len <= 0) {
+				break;
+			}
+		}
+		if (len > 0) {
+			if (*ptr == '"') {
+				ptr++;
+			}
+			memcpy(gateway_id, ptr, NRF_CLOUD_CLIENT_ID_LEN);
+			gateway_id[NRF_CLOUD_CLIENT_ID_LEN] = 0;
+			*id = gateway_id;
+			*id_len = strlen(gateway_id);
+
+		} else {
+			LOG_ERR("no GWID set in PSK!");
+			ret = -EINVAL;
+		}
+	}
+
+cleanup:
+	err = nrf_close(at_socket_fd);
+	if (err != 0) {
+		ret = -EIO;
+	}
+	return ret;
 }
 
 void device_shutdown(bool reboot)

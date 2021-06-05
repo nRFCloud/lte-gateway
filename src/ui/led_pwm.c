@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2019 Nordic Semiconductor ASA
  *
- * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
 #include <zephyr.h>
@@ -24,7 +24,8 @@ struct led {
 	uint16_t effect_step;
 	uint16_t effect_substep;
 
-	struct k_delayed_work work;
+	struct k_work_delayable work;
+	struct k_work_sync work_sync;
 };
 
 static const struct led_effect effect[] = {
@@ -165,7 +166,7 @@ static void led_1_work_handler(struct k_work *work)
 		int32_t next_delay =
 			leds_1.effect->steps[leds_1.effect_step].substep_time;
 
-		k_delayed_work_submit(&leds_1.work, K_MSEC(next_delay));
+		k_work_schedule(&leds_1.work, K_MSEC(next_delay));
 	}
 }
 
@@ -203,13 +204,17 @@ static void led_2_work_handler(struct k_work *work)
 		int32_t next_delay =
 			leds_2.effect->steps[leds_2.effect_step].substep_time;
 
-		k_delayed_work_submit(&leds_2.work, K_MSEC(next_delay));
+		k_work_schedule(&leds_2.work, K_MSEC(next_delay));
 	}
 }
 
 static void led_update(struct led *led)
 {
-	k_delayed_work_cancel(&led->work);
+	if (!k_is_in_isr()) {
+		k_work_cancel_delayable_sync(&led->work, &led->work_sync);
+	} else {
+		k_work_cancel_delayable(&led->work);
+	}
 
 	led->effect_step = 0;
 	led->effect_substep = 0;
@@ -225,7 +230,7 @@ static void led_update(struct led *led)
 		int32_t next_delay =
 			led->effect->steps[led->effect_step].substep_time;
 
-		k_delayed_work_submit(&led->work, K_MSEC(next_delay));
+		k_work_reschedule(&led->work, K_MSEC(next_delay));
 	} else {
 		LOG_DBG("LED effect with no effect");
 	}
@@ -246,7 +251,7 @@ int ui_leds_init(void)
 		return -ENODEV;
 	}
 
-	k_delayed_work_init(&leds_1.work, led_1_work_handler);
+	k_work_init_delayable(&leds_1.work, led_1_work_handler);
 	led_update(&leds_1);
 
 	leds_2.pwm_dev = device_get_binding(dev2_name);
@@ -258,7 +263,7 @@ int ui_leds_init(void)
 		return -ENODEV;
 	}
 
-	k_delayed_work_init(&leds_2.work, led_2_work_handler);
+	k_work_init_delayable(&leds_2.work, led_2_work_handler);
 	led_update(&leds_2);
 
 	return err;
@@ -281,14 +286,13 @@ void ui_leds_start(void)
 
 void ui_leds_stop(void)
 {
-	k_delayed_work_cancel(&leds_1.work);
-	k_delayed_work_cancel(&leds_2.work);
+	k_work_cancel_delayable_sync(&leds_1.work, &leds_1.work_sync);
+	k_work_cancel_delayable_sync(&leds_2.work, &leds_2.work_sync);
 
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	int err = device_set_power_state(leds.pwm_dev,
-					 DEVICE_PM_SUSPEND_STATE,
-					 NULL, NULL);
-
+#ifdef CONFIG_PM_DEVICE
+	int err = pm_device_state_set(leds.pwm_dev,
+				      PM_DEVICE_STATE_SUSPEND,
+				      NULL, NULL);
 	if (err) {
 		LOG_ERR("PWM disable failed");
 	}
