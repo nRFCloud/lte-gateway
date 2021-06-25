@@ -13,6 +13,7 @@
 #include "ble_codec.h"
 #include "ble_conn_mgr.h"
 #include "ble.h"
+#include "gateway.h"
 #include "nrf_cloud_codec.h"
 #include "nrf_cloud_mem.h"
 #include "nrf_cloud_transport.h"
@@ -23,7 +24,6 @@
 LOG_MODULE_REGISTER(ble_codec, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
 extern struct ble_scanned_dev ble_scanned_devices[MAX_SCAN_RESULTS];
-extern char gateway_id[10];
 
 static char service_buffer[MAX_SERVICE_BUF_SIZE];
 

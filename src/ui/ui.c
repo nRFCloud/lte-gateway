@@ -221,6 +221,7 @@ int ui_init(ui_callback_t cb)
 			falling_edge = false;
 			held_at_startup = true;
 #if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
+			LOG_PANIC();
 			LOG_DBG("Starting boot select timer");
 			k_timer_start(&boot_select_timer, K_SECONDS(4),
 				      K_SECONDS(0));

@@ -235,6 +235,7 @@ void print_connection_status(const struct shell *shell)
 	int err;
 	enum lte_lc_nw_reg_status status;
 	enum lte_lc_system_mode smode;
+	enum lte_lc_system_mode_preference smode_pref;
 	enum lte_lc_func_mode fmode;
 
 	err = lte_lc_nw_reg_status_get(&status);
@@ -243,11 +244,12 @@ void print_connection_status(const struct shell *shell)
 	} else {
 		shell_print(shell, "LTE reg status: \t%d", (int)status);
 	}
-	err = lte_lc_system_mode_get(&smode);
+	err = lte_lc_system_mode_get(&smode, &smode_pref);
 	if (err) {
 		shell_error(shell, "lte_lc_system_mode_get: %d", err);
 	} else {
 		shell_print(shell, "LTE system mode: \t%d", (int)smode);
+		shell_print(shell, "system mode pref: \t%d", (int)smode_pref);
 	}
 	err = lte_lc_func_mode_get(&fmode);
 	if (err) {

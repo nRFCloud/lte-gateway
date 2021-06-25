@@ -1,7 +1,7 @@
 #
 # Copyright (c) 2018 Nordic Semiconductor ASA
 #
-# SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #
 
 menu "nRF Cloud Gateway App"
@@ -15,6 +15,15 @@ config APPLICATION_WORKQUEUE_STACK_SIZE
 config APPLICATION_WORKQUEUE_PRIORITY
 	int "Application workqueue priority"
 	default SYSTEM_WORKQUEUE_PRIORITY
+
+menu "Device and modem"
+
+config POWER_OPTIMIZATION_ENABLE
+	bool "Enable power optimization"
+	default y
+	select LTE_EDRX_REQ
+
+endmenu # Device
 
 menu "Cloud"
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  *
- * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
 #include <zephyr.h>
@@ -12,7 +12,7 @@
 #include <drivers/uart.h>
 #include <drivers/sensor.h>
 #include <console/console.h>
-#include <power/reboot.h>
+#include <sys/reboot.h>
 #include <logging/log_ctrl.h>
 #if defined(CONFIG_NRF_MODEM_LIB)
 #include <modem/nrf_modem_lib.h>
@@ -142,9 +142,9 @@ static atomic_val_t cloud_association =
 	ATOMIC_INIT(CLOUD_ASSOCIATION_STATE_INIT);
 
 /* Structures for work */
-static struct k_delayed_work cloud_reboot_work;
-static struct k_delayed_work cycle_cloud_connection_work;
-static struct k_delayed_work cloud_connect_work;
+static struct k_work_delayable cloud_reboot_work;
+static struct k_work_delayable cycle_cloud_connection_work;
+static struct k_work_delayable cloud_connect_work;
 static struct k_work no_sim_go_offline_work;
 
 #if defined(CONFIG_AT_CMD)
@@ -239,8 +239,11 @@ int lwm2m_carrier_event_handler(const lwm2m_carrier_event_t *event)
 	case LWM2M_CARRIER_EVENT_DISCONNECTED:
 		LOG_INF("LWM2M_CARRIER_EVENT_DISCONNECTED");
 		break;
-	case LWM2M_CARRIER_EVENT_READY:
-		LOG_INF("LWM2M_CARRIER_EVENT_READY");
+	case LWM2M_CARRIER_EVENT_LTE_READY:
+		LOG_INF("LWM2M_CARRIER_EVENT_LTE_READY");
+		break;
+	case LWM2M_CARRIER_EVENT_REGISTERED:
+		LOG_INF("LWM2M_CARRIER_EVENT_REGISTERED");
 		k_sem_give(&cloud_ready_to_connect);
 		break;
 	case LWM2M_CARRIER_EVENT_FOTA_START:
@@ -325,21 +328,21 @@ void error_handler(enum error_type err_type, int err_code)
 	case ERROR_BLE:
 		ui_led_set_pattern(UI_BLE_ERROR, PWM_DEV_1);
 		LOG_ERR("Error of type ERROR_BLE: %d", err_code);
-		break;
+	break;
 	case ERROR_CLOUD:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 4, 2 and 3)
 		 * if there is an application error.
 		 */
 		ui_led_set_pattern(UI_LED_ERROR_CLOUD, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_CLOUD: %d", err_code);
-		break;
+	break;
 	case ERROR_MODEM_RECOVERABLE:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
 		 */
 		ui_led_set_pattern(UI_LED_ERROR_MODEM_REC, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_MODEM_RECOVERABLE: %d", err_code);
-		break;
+	break;
 	case ERROR_MODEM_IRRECOVERABLE:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 3, 2 and 4)
 		 * if there is a recoverable error.
@@ -347,7 +350,7 @@ void error_handler(enum error_type err_type, int err_code)
 		ui_led_set_pattern(UI_LED_ERROR_MODEM_IRREC, PWM_DEV_0);
 		LOG_ERR("Error of type ERROR_MODEM_IRRECOVERABLE: %d",
 			err_code);
-		break;
+	break;
 	default:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 2, 3 and 4)
 		 * undefined error.
@@ -355,7 +358,7 @@ void error_handler(enum error_type err_type, int err_code)
 		ui_led_set_pattern(UI_LED_ERROR_UNKNOWN, PWM_DEV_0);
 		LOG_ERR("Unknown error type: %d, code: %d",
 			err_type, err_code);
-		break;
+	break;
 	}
 
 	while (true) {
@@ -449,7 +452,7 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 	if (reboot) {
 		LOG_ERR("Device will reboot in %d seconds",
 			CONFIG_CLOUD_CONNECT_ERR_REBOOT_S);
-		k_delayed_work_submit_to_queue(
+		k_work_reschedule_for_queue(
 				&application_work_q, &cloud_reboot_work,
 				K_SECONDS(CONFIG_CLOUD_CONNECT_ERR_REBOOT_S));
 	}
@@ -491,7 +494,7 @@ void connect_to_cloud(const int32_t connect_delay_s)
 
 	/* Check if max cloud connect retry count is exceeded. */
 	if (atomic_get(&cloud_connect_attempts) >
-			CONFIG_CLOUD_CONNECT_COUNT_MAX) {
+		       CONFIG_CLOUD_CONNECT_COUNT_MAX) {
 		LOG_ERR("The max cloud connection attempt count exceeded.");
 		cloud_error_handler(-ETIMEDOUT);
 	}
@@ -499,7 +502,7 @@ void connect_to_cloud(const int32_t connect_delay_s)
 	if (!initial_connect) {
 		LOG_INF("Attempting reconnect in %d seconds...",
 			connect_delay_s);
-		k_delayed_work_cancel(&cloud_reboot_work);
+		k_work_cancel_delayable(&cloud_reboot_work);
 	} else {
 		initial_connect = false;
 
@@ -516,7 +519,7 @@ void connect_to_cloud(const int32_t connect_delay_s)
 		}
 	}
 
-	k_delayed_work_submit_to_queue(&application_work_q,
+	k_work_reschedule_for_queue(&application_work_q,
 				       &cloud_connect_work,
 				       K_SECONDS(connect_delay_s));
 }
@@ -529,16 +532,16 @@ static void cloud_connect_work_fn(struct k_work *work)
 		atomic_get(&cloud_connect_attempts),
 		CONFIG_CLOUD_CONNECT_COUNT_MAX);
 
-	k_delayed_work_submit_to_queue(&application_work_q,
-				       &cloud_reboot_work,
-				       K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
+	k_work_reschedule_for_queue(&application_work_q,
+				    &cloud_reboot_work,
+				    K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
 
 	ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
 
 	/* Attempt cloud connection */
 	ret = cloud_connect(cloud_backend);
 	if (ret != CLOUD_CONNECT_RES_SUCCESS) {
-		k_delayed_work_cancel(&cloud_reboot_work);
+		k_work_cancel_delayable(&cloud_reboot_work);
 		/* Will not return from this function.
 		 * If the connect fails here, it is likely
 		 * that user intervention is required.
@@ -548,7 +551,7 @@ static void cloud_connect_work_fn(struct k_work *work)
 		LOG_INF("Cloud connection request sent.");
 		LOG_INF("Connection response timeout is set to %d seconds.",
 			CLOUD_CONNACK_WAIT_DURATION / MSEC_PER_SEC);
-		k_delayed_work_submit_to_queue(&application_work_q,
+		k_work_reschedule_for_queue(&application_work_q,
 					&cloud_reboot_work,
 					K_MSEC(CLOUD_CONNACK_WAIT_DURATION));
 	}
@@ -564,7 +567,7 @@ static void cloud_reboot_handler(struct k_work *work)
 static void on_user_pairing_req(const struct cloud_event *evt)
 {
 	if (atomic_get(&cloud_association) !=
-			CLOUD_ASSOCIATION_STATE_REQUESTED) {
+		       CLOUD_ASSOCIATION_STATE_REQUESTED) {
 		atomic_set(&cloud_association,
 			   CLOUD_ASSOCIATION_STATE_REQUESTED);
 		ui_led_set_pattern(UI_CLOUD_PAIRING, PWM_DEV_0);
@@ -585,9 +588,9 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 		/* If the association is not done soon enough (< ~5 min?)
 		 * a connection cycle is needed... TBD why.
 		 */
-		k_delayed_work_submit_to_queue(&application_work_q,
-					&cycle_cloud_connection_work,
-					CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
+		k_work_reschedule_for_queue(&application_work_q,
+					    &cycle_cloud_connection_work,
+					    CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
 	}
 }
 
@@ -605,7 +608,7 @@ static void cycle_cloud_connection(struct k_work *work)
 	}
 
 	/* Reboot fail-safe on disconnect */
-	k_delayed_work_submit_to_queue(&application_work_q, &cloud_reboot_work,
+	k_work_reschedule_for_queue(&application_work_q, &cloud_reboot_work,
 				       K_MSEC(reboot_wait_ms));
 }
 
@@ -614,7 +617,7 @@ void on_pairing_done(void)
 {
 	if (atomic_get(&cloud_association) ==
 			CLOUD_ASSOCIATION_STATE_REQUESTED) {
-		k_delayed_work_cancel(&cycle_cloud_connection_work);
+		k_work_cancel_delayable(&cycle_cloud_connection_work);
 
 		/* After successful association, the device must
 		 * reconnect to the cloud.
@@ -623,12 +626,35 @@ void on_pairing_done(void)
 		LOG_INF("Reconnecting for cloud policy to take effect.");
 		atomic_set(&cloud_association,
 			   CLOUD_ASSOCIATION_STATE_RECONNECT);
-		k_delayed_work_submit_to_queue(&application_work_q,
-					       &cycle_cloud_connection_work,
-					       K_NO_WAIT);
+		k_work_reschedule_for_queue(&application_work_q,
+					    &cycle_cloud_connection_work,
+					    K_NO_WAIT);
 	} else {
 		atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_PAIRED);
 	}
+}
+
+void fota_done_handler(const struct cloud_event *const evt)
+{
+	lte_connection_status = false;
+#if defined(CONFIG_NRF_CLOUD_FOTA)
+	enum nrf_cloud_fota_type fota_type = NRF_CLOUD_FOTA_TYPE__INVALID;
+
+	if (evt && evt->data.msg.buf) {
+		fota_type = *(enum nrf_cloud_fota_type *)evt->data.msg.buf;
+		LOG_INF("FOTA type: %d", fota_type);
+	}
+#endif
+	k_sleep(K_SECONDS(2));
+#if defined(CONFIG_LTE_LINK_CONTROL)
+		lte_lc_power_off();
+#endif
+#if defined(CONFIG_REBOOT)
+	LOG_INF("Rebooting to complete FOTA update");
+	sys_reboot(SYS_REBOOT_COLD);
+#else
+	LOG_WRN("Manual reboot required to complete FOTA update!");
+#endif
 }
 
 void cloud_event_handler(const struct cloud_backend *const backend,
@@ -671,17 +697,12 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		LOG_INF("CLOUD_EVT_PAIR_DONE");
 		on_pairing_done();
 		break;
+	case CLOUD_EVT_FOTA_ERROR:
+		LOG_INF("CLOUD_EVT_FOTA_ERROR");
+		break;
 	case CLOUD_EVT_FOTA_DONE:
 		LOG_INF("CLOUD_EVT_FOTA_DONE");
-		lte_connection_status = false;
-		LOG_INF("Rebooting to complete FOTA...");
-		k_sleep(K_SECONDS(2));
-#if defined(CONFIG_LTE_LINK_CONTROL)
-		lte_lc_power_off();
-#endif
-#if defined(CONFIG_REBOOT)
-		sys_reboot(SYS_REBOOT_COLD);
-#endif
+		fota_done_handler(evt);
 		break;
 	default:
 		LOG_WRN("Unknown cloud event type: %d", evt->type);
@@ -754,7 +775,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		cloud_connection_status = false;
 		LOG_INF("CLOUD_EVT_CONNECTING");
 		ui_led_set_pattern(UI_CLOUD_CONNECTING, PWM_DEV_0);
-		k_delayed_work_cancel(&cloud_reboot_work);
+		k_work_cancel_delayable(&cloud_reboot_work);
 
 		if (evt->data.err != CLOUD_CONNECT_RES_SUCCESS) {
 			cloud_connect_error_handler(evt->data.err);
@@ -766,7 +787,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		query_modem_info();
 		LOG_INF("*******************************");
 		LOG_INF("CLOUD_EVT_CONNECTED");
-		k_delayed_work_cancel(&cloud_reboot_work);
+		k_work_cancel_delayable(&cloud_reboot_work);
 		k_sem_take(&cloud_disconnected, K_NO_WAIT);
 		atomic_set(&cloud_connect_attempts, 0);
 
@@ -784,16 +805,25 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		switch (evt->data.err) {
 		case CLOUD_DISCONNECT_INVALID_REQUEST:
 			LOG_INF("Cloud connection closed.");
+			break;
+		case CLOUD_DISCONNECT_USER_REQUEST:
+			if (atomic_get(&cloud_association) ==
+			    CLOUD_ASSOCIATION_STATE_RECONNECT ||
+			    atomic_get(&cloud_association) ==
+			    CLOUD_ASSOCIATION_STATE_REQUESTED ||
+			    (atomic_get(&carrier_requested_disconnect))) {
+				connect_wait_s = 10;
+			}
+			break;
+		case CLOUD_DISCONNECT_CLOSED_BY_REMOTE:
+			LOG_INF("Disconnected by the cloud.");
 			if ((atomic_get(&cloud_connect_attempts) == 1) &&
-				(atomic_get(&cloud_association) ==
-						CLOUD_ASSOCIATION_STATE_INIT)) {
-				LOG_INF("This can occur during initial "
-					"nRF Cloud provisioning.");
+			    (atomic_get(&cloud_association) ==
+			     CLOUD_ASSOCIATION_STATE_INIT)) {
+				LOG_INF("This can occur during initial nRF Cloud provisioning.");
 #if defined(CONFIG_LWM2M_CARRIER)
 #if !defined(CONFIG_DEBUG) && defined(CONFIG_REBOOT)
-				/* Reconnect does not work with
-				 * carrier library
-				 */
+				/* Reconnect does not work with carrier library */
 				LOG_INF("Rebooting in 10 seconds...");
 				k_sleep(K_SECONDS(10));
 #endif
@@ -802,25 +832,9 @@ void connection_evt_handler(const struct cloud_event *const evt)
 #endif
 				connect_wait_s = 10;
 			} else {
-				LOG_INF("This can occur if the device has "
-					"the wrong nRF Cloud certificates.");
+				LOG_INF("This can occur if the device has the wrong nRF Cloud certificates");
+				LOG_INF("or if the device has been removed from nRF Cloud.");
 			}
-			break;
-		case CLOUD_DISCONNECT_USER_REQUEST:
-			LOG_INF("CLOUD_DISCONNECT_USER_REQUEST");
-			if (atomic_get(&cloud_association) ==
-					CLOUD_ASSOCIATION_STATE_RECONNECT ||
-				atomic_get(&cloud_association) ==
-					CLOUD_ASSOCIATION_STATE_REQUESTED ||
-				(atomic_get(&carrier_requested_disconnect))) {
-				connect_wait_s = 10;
-				LOG_INF("reconnect for association");
-			} else {
-				connect_wait_s = -1;
-			}
-			break;
-		case CLOUD_DISCONNECT_CLOSED_BY_REMOTE:
-			LOG_INF("Disconnected by the cloud.");
 			break;
 		case CLOUD_DISCONNECT_MISC:
 			LOG_INF("CLOUD_DISCONNECT_MISC");
@@ -838,10 +852,10 @@ void connection_evt_handler(const struct cloud_event *const evt)
 /**@brief Initializes and submits delayed work. */
 static void work_init(void)
 {
-	k_delayed_work_init(&cloud_reboot_work, cloud_reboot_handler);
-	k_delayed_work_init(&cycle_cloud_connection_work,
+	k_work_init_delayable(&cloud_reboot_work, cloud_reboot_handler);
+	k_work_init_delayable(&cycle_cloud_connection_work,
 			    cycle_cloud_connection);
-	k_delayed_work_init(&cloud_connect_work, cloud_connect_work_fn);
+	k_work_init_delayable(&cloud_connect_work, cloud_connect_work_fn);
 	k_work_init(&no_sim_go_offline_work, no_sim_go_offline);
 }
 
@@ -851,6 +865,10 @@ static void cloud_api_init(void)
 
 	cloud_backend = cloud_get_binding("NRF_CLOUD");
 	__ASSERT(cloud_backend != NULL, "nRF Cloud backend not found");
+
+#if defined(CONFIG_NRF_CLOUD_CLIENT_ID_SRC_RUNTIME)
+	gw_client_id_get(&cloud_backend->config->id, &cloud_backend->config->id_len);
+#endif
 
 	ret = cloud_init(cloud_backend, cloud_event_handler);
 	if (ret) {
@@ -957,6 +975,62 @@ static void no_sim_go_offline(struct k_work *work)
 #endif /* CONFIG_NRF_MODEM_LIB */
 }
 
+#if defined(CONFIG_LTE_LINK_CONTROL)
+static void lte_handler(const struct lte_lc_evt *const evt)
+{
+	switch (evt->type) {
+	case LTE_LC_EVT_NW_REG_STATUS:
+
+		if (evt->nw_reg_status == LTE_LC_NW_REG_UICC_FAIL) {
+			k_work_submit_to_queue(&application_work_q,
+				       &no_sim_go_offline_work);
+
+		} else if ((evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME) ||
+			(evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING)) {
+			LOG_INF("Network registration status: %s",
+			evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME ?
+			"Connected - home network" : "Connected - roaming");
+		}
+		break;
+	case LTE_LC_EVT_PSM_UPDATE:
+		LOG_INF("PSM parameter update: TAU: %d, Active time: %d",
+			evt->psm_cfg.tau, evt->psm_cfg.active_time);
+		break;
+	case LTE_LC_EVT_EDRX_UPDATE: {
+		char log_buf[60];
+		ssize_t len;
+
+		len = snprintf(log_buf, sizeof(log_buf),
+					"eDRX parameter update: eDRX: %0.2f, PTW: %0.2f",
+					evt->edrx_cfg.edrx, evt->edrx_cfg.ptw);
+		if ((len > 0) && (len < sizeof(log_buf))) {
+			LOG_INF("%s", log_strdup(log_buf));
+		}
+		break;
+	}
+	case LTE_LC_EVT_RRC_UPDATE:
+		LOG_DBG("RRC mode: %s",
+			evt->rrc_mode == LTE_LC_RRC_MODE_CONNECTED ?
+			"Connected" : "Idle");
+		break;
+	case LTE_LC_EVT_CELL_UPDATE:
+		LOG_INF("LTE cell changed: Cell ID: %d, Tracking area: %d",
+			evt->cell.id, evt->cell.tac);
+#if defined(CONFIG_AGPS_SINGLE_CELL_ONLY)
+		/* Request location based on new network info */
+		if (data_send_enabled() && evt->cell.id != -1) {
+			k_work_reschedule_for_queue(&application_work_q,
+						       &send_agps_request_work,
+						       K_SECONDS(1));
+		}
+#endif
+		break;
+	default:
+		break;
+	}
+}
+
+#endif /* defined(CONFIG_LTE_LINK_CONTROL) */
 static void starting_button_handler(void)
 {
 #if defined(CONFIG_ENTER_52840_MCUBOOT_VIA_BUTTON)
@@ -1057,9 +1131,9 @@ void main(void)
 		settings_load();
 	}
 
-	k_work_q_start(&application_work_q, application_stack_area,
-		       K_THREAD_STACK_SIZEOF(application_stack_area),
-		       CONFIG_APPLICATION_WORKQUEUE_PRIORITY);
+	k_work_queue_start(&application_work_q, application_stack_area,
+			   K_THREAD_STACK_SIZEOF(application_stack_area),
+			   CONFIG_APPLICATION_WORKQUEUE_PRIORITY, NULL);
 	k_thread_name_set(&application_work_q.thread, "appworkq");
 
 	starting_button_handler();
@@ -1099,6 +1173,10 @@ void main(void)
 #if defined(CONFIG_CPU_LOAD)
 	cpu_load_init();
 #endif
+
+#if defined(CONFIG_LTE_LINK_CONTROL)
+	lte_lc_register_handler(lte_handler);
+#endif /* defined(CONFIG_LTE_LINK_CONTROL) */
 
 	while (modem_configure() != 0) {
 		LOG_WRN("Failed to establish LTE connection.");
