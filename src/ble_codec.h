@@ -34,12 +34,13 @@ int device_error_encode(char *ble_address, char *error_msg,
 			struct ble_msg *msg);
 int device_disconnect_result_encode(char *ble_address, bool conn_status,
 				    struct ble_msg *msg);
-int gateway_shadow_data_encode(char *buf, size_t len);
+int gateway_shadow_data_encode(void *modem, char *buf, size_t len);
 int device_shadow_data_encode(char *ble_address, bool connecting,
 			      bool connected, struct ble_msg *msg);
 void get_uuid_str(struct uuid_handle_pair *uuid_handle, char *str, size_t len);
 int nrf_cloud_update_gateway_state(struct desired_conn *desired,
 					  int num_desired);
+char *get_time_str(char *dst, size_t len);
 void ble_codec_init(void);
 
 #endif

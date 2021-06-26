@@ -7,6 +7,10 @@
 #include <posix/time.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
+#if defined(CONFIG_NRF_MODEM_LIB)
+#include <modem/modem_info.h>
+#endif /* CONFIG_NRF_MODEM_LIB */
+#include <date_time.h>
 
 #include "cJSON.h"
 #include "cJSON_os.h"
@@ -14,6 +18,7 @@
 #include "ble_conn_mgr.h"
 #include "ble.h"
 #include "gateway.h"
+#include "service_info.h"
 #include "nrf_cloud_codec.h"
 #include "nrf_cloud_mem.h"
 #include "nrf_cloud_transport.h"
@@ -107,8 +112,33 @@ static bool desired_conns_strings = false;
 
 char *get_time_str(char *dst, size_t len)
 {
-	struct timespec ts;
+	int64_t unix_time_ms;
+	int err;
+
+#ifdef CONFIG_DATE_TIME
+	err = date_time_now(&unix_time_ms);
+	if (!err) {
+		time_t unix_time;
+		struct tm *time;
+
+		unix_time = unix_time_ms / MSEC_PER_SEC;
+		LOG_DBG("Unix time %lld", unix_time);
+		time = gmtime(&unix_time);
+		if (time) {
+			/* 2020-02-19T18:38:50.363Z */
+			strftime(dst, len, "%Y-%m-%dT%H:%M:%S.000Z", time);
+			LOG_DBG("Date/time %s", log_strdup(dst));
+		} else {
+			LOG_WRN("Time not valid");
+			dst = NULL;
+		}
+	} else {
+		dst = NULL;
+		LOG_ERR("date/time not available: %d", err);
+	}
+#else
 	struct tm tm;
+	struct timespec ts;
 	time_t t;
 
 	if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
@@ -119,6 +149,7 @@ char *get_time_str(char *dst, size_t len)
 		strftime(dst, len, "%Y-%m-%dT%H:%M:%S.000Z", &tm);
 		LOG_DBG("Date/time %s", log_strdup(dst));
 	}
+#endif
 	return dst;
 }
 
@@ -599,48 +630,75 @@ cleanup:
 	return ret;
 }
 
-int gateway_shadow_data_encode(char *buf, size_t len)
+int gateway_shadow_data_encode(void *modem_ptr,
+			       char *buf, size_t len)
 {
+	struct modem_param_info *modem;
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *state_obj = cJSON_CreateObject();
 	cJSON *reported_obj = cJSON_CreateObject();
-	cJSON *gateway_device = cJSON_CreateObject();
-	cJSON *service_info = cJSON_CreateObject();
-	cJSON *fota_arr = cJSON_CreateArray();
+	cJSON *device_obj = cJSON_CreateObject();
 
 	if ((root_obj == NULL) || (state_obj == NULL) ||
-	    (reported_obj == NULL) || (gateway_device == NULL) ||
-	    (service_info == NULL) || (fota_arr == NULL)) {
+	    (reported_obj == NULL) || (device_obj == NULL)) {
 		LOG_ERR("Error creating shadow data");
 		goto cleanup;
 	}
 
-	CJADDARRSTR(fota_arr, "APP");
-	CJADDARRSTR(fota_arr, "MODEM");
-	CJADDARRSTR(fota_arr, "BOOT");
-
-#if defined(CONFIG_NRF_CLOUD_FOTA)
-	CJADDREFCS(service_info, "fota_v2", fota_arr);
-	CJADDNULLCS(service_info, "fota_v1");
-#else
-	CJADDREFCS(service_info, "fota_v1", fota_arr);
+	const char *const ui[] = {
+#if CONFIG_MODEM_INFO
+		/* not yet plumbed to report this: "RSRP",*/
 #endif
-	CJADDREFCS(gateway_device, "serviceInfo", service_info);
-	CJADDREFCS(reported_obj, "device", gateway_device);
+	};
+
+	const char *const fota[] = {
+		"APP",
+		"MODEM",
+		"BOOT",
+	};
+
+	size_t item_cnt = 0;
+
+#ifdef CONFIG_MODEM_INFO
+	modem = (struct modem_param_info *)modem_ptr;
+	if (modem == NULL) {
+		LOG_ERR("Unable to obtain modem parameters");
+	} else {
+		int val;
+
+		val = modem_info_json_object_encode(modem, device_obj);
+		if (val > 0) {
+			item_cnt = (size_t)val;
+		}
+		ret = 0;
+	}
+#endif
+
+	if (service_info_json_object_encode(ui, ARRAY_SIZE(ui),
+					    fota, ARRAY_SIZE(fota),
+					    SERVICE_INFO_FOTA_VER_CURRENT,
+					    true,
+					    device_obj) == 0) {
+		++item_cnt;
+	}
+
+	if (!item_cnt) {
+		ret = -ECHILD;
+		goto cleanup;
+	}
+
+	CJADDREFCS(reported_obj, "device", device_obj);
 	CJADDREFCS(state_obj, "reported", reported_obj);
 	CJADDREFCS(root_obj, "state", state_obj);
 
 	CJPRINT(root_obj, buf, len, 0);
-	ret = 0;
 
 cleanup:
 	if (ret) {
 		LOG_ERR("In shadow cleanup: %d", ret);
 	}
-	cJSON_Delete(fota_arr);
-	cJSON_Delete(service_info);
-	cJSON_Delete(gateway_device);
+	cJSON_Delete(device_obj);
 	cJSON_Delete(reported_obj);
 	cJSON_Delete(state_obj);
 	cJSON_Delete(root_obj);
@@ -866,7 +924,7 @@ static int ccc_attr_encode(char *uuid, char *path,
 	}
 	uint8_t val = sub_enabled ? BT_GATT_CCC_NOTIFY : 0;
 
-	LOG_INF("value: %u", val);
+	LOG_DBG("value: %u", val);
 	CJADDSTRCS(descriptor, "uuid", uuid);
 	CJADDARRNUM(value_arr, val);
 	CJADDARRNUM(value_arr, 0);
@@ -908,7 +966,7 @@ static int attr_encode(struct uuid_handle_pair *uuid_handle,
 				       ble_conn_ptr, msg);
 
 	} else if (uuid_handle->attr_type == BT_ATTR_CCC) {
-		LOG_INF("Encoding CCC : UUID: %s  PATH: %s",
+		LOG_DBG("Encoding CCC : UUID: %s  PATH: %s",
 			log_strdup(uuid_str), log_strdup(path));
 		ret = ccc_attr_encode(uuid_str, path, ble_conn_ptr, msg,
 				      other_handle ?

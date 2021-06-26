@@ -209,6 +209,14 @@ config SHELL_DEFAULT_PASSWORD
 	  User needs to type this to enter the shell and execute
 	  commands.
 
+config GATEWAY_BLE_FOTA
+	bool "Enable BLE FOTA support"
+	default y
+	help
+	  Enable ability to receive FOTA jobs for specific BLE devices,
+	  then inject data from one or more file downloads to a BLE
+	  device that supports a compatible DFU protocol.
+
 config GATEWAY_DBG_CMDS
 	bool "Enable debugging commands"
 	default y
