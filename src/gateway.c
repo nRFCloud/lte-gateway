@@ -119,7 +119,7 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			k_free(cloud_data);
 			k_mutex_unlock(&lock);
 		}
-		k_sleep(K_MSEC(1000));
+		k_sleep(K_MSEC(100));
 	}
 }
 

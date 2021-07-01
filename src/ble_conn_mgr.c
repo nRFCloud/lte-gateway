@@ -35,13 +35,15 @@ static void process_connection(int i)
 		return;
 	}
 	/* Add devices to allowlist */
-	if (!dev->added_to_allowlist) {
-		ble_add_to_allowlist(dev->addr);
-		dev->added_to_allowlist = true;
+	if (!dev->added_to_allowlist && !dev->shadow_updated && !dev->connected) {
+		if (!ble_add_to_allowlist(dev->addr, true)) {
+			dev->added_to_allowlist = true;
+			LOG_INF("Device added to allowlist.");
+		}
 		err = update_shadow(dev->addr, true, false);
 		if (!err) {
 			dev->shadow_updated = true;
-			LOG_INF("Device added to allowlist.");
+			LOG_INF("Shadow updated.");
 		}
 	}
 
@@ -168,10 +170,20 @@ void ble_conn_mgr_update_connections(void)
 			}
 
 			if (dev->disconnect) {
+				int err;
+
 				LOG_INF("cloud: disconnect device %s",
 					log_strdup(dev->addr));
-				ble_remove_from_allowlist(dev->addr);
-				disconnect_device_by_addr(dev->addr);
+				if (dev->added_to_allowlist) {
+					if (!ble_add_to_allowlist(dev->addr, false)) {
+						dev->added_to_allowlist = false;
+					}
+				}
+				err = disconnect_device_by_addr(dev->addr);
+				if (err) {
+					LOG_ERR("Device might still be connected: %d",
+						err);
+				}
 				ble_conn_mgr_conn_reset(dev);
 				if (IS_ENABLED(CONFIG_SETTINGS)) {
 					LOG_INF("Saving settings");
@@ -404,26 +416,9 @@ int ble_conn_set_connected(char *addr, bool connected)
 		connected_ble_ptr->connected = true;
 	} else {
 		connected_ble_ptr->connected = false;
+		connected_ble_ptr->shadow_updated = false;
 	}
 	LOG_INF("Conn updated: connected=%u", connected);
-	return err;
-}
-
-int ble_conn_set_disconnected(char *addr)
-{
-	int err = 0;
-	struct ble_device_conn *connected_ble_ptr;
-
-	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
-
-	if (err) {
-		LOG_ERR("Can't find conn to disconnect");
-		return err;
-	}
-
-	connected_ble_ptr->connected = false;
-	connected_ble_ptr->shadow_updated = false;
-	LOG_INF("Conn %s Disconnected", log_strdup(addr));
 	return err;
 }
 
