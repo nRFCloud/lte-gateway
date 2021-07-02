@@ -899,6 +899,7 @@ static int cmd_info_irq(const struct shell *shell, size_t argc,
 	return 0;
 }
 
+#if CONFIG_GATEWAY_BLE_FOTA
 static int cmd_ble_test(const struct shell *shell, size_t argc, char **argv)
 {
 	static bool test_mode = true;
@@ -908,6 +909,7 @@ static int cmd_ble_test(const struct shell *shell, size_t argc, char **argv)
 	test_mode = !test_mode;
 	return 0;
 }
+#endif
 
 static int cmd_ble_scan(const struct shell *shell, size_t argc, char **argv)
 {
@@ -1286,6 +1288,7 @@ ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3c
 ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*f15b85a8*s132/sd_bl.bin 153344 0 s132
 ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3cad9f8801b0/APP*3fb54637*s132/sd_bl_dat.bin 139 1 s132
 */
+#if CONFIG_GATEWAY_BLE_FOTA
 static int cmd_ble_fota(const struct shell *shell, size_t argc, char **argv)
 {
 	char *addr = argv[0];
@@ -1361,6 +1364,7 @@ static void get_dynamic_ble_fota(size_t idx, struct shell_static_entry *entry)
 }
 
 SHELL_DYNAMIC_CMD_CREATE(dynamic_ble_fota, get_dynamic_ble_fota);
+#endif
 
 
 static int cmd_session(const struct shell *shell, size_t argc, char **argv)
@@ -1519,11 +1523,13 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
 	SHELL_CMD(dis, &dynamic_ble_dis,
 		  "<all | MAC [all | handle]> Disable "
 		  "notifications on BLE device(s).", NULL),
+#if CONFIG_GATEWAY_BLE_FOTA
 	SHELL_CMD(fota, &dynamic_ble_fota,
 		 "<addr> <host> <path> <size> <final> "
 		 "[ver] [crc] [sec_tag] [frag_size] [apn] "
 		  "BLE firmware over-the-air update.", NULL),
 	SHELL_CMD(test, NULL, "Set BLE FOTA download test mode.", cmd_ble_test),
+#endif
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 SHELL_CMD_ARG_REGISTER(ble, &sub_ble, "Bluetooth commands", NULL, 0, 3);
