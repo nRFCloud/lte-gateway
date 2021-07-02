@@ -86,7 +86,7 @@ target_sources(app PRIVATE src/ble_conn_mgr.c)
 target_sources(app PRIVATE src/gateway.c)
 target_sources(app PRIVATE src/service_info.c)
 target_sources_ifdef(CONFIG_SHELL app PRIVATE src/cli.c)
-target_sources(app PRIVATE src/dfu/peripheral_dfu.c)
+target_sources_ifdef(CONFIG_GATEWAY_BLE_FOTA app PRIVATE src/dfu/peripheral_dfu.c)
 
 add_subdirectory(src/ui)
 #add_subdirectory(src/dfu)

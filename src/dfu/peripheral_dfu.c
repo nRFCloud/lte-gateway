@@ -5,6 +5,7 @@
 #include <logging/log.h>
 #include <net/fota_download.h>
 #include <sys/crc.h>
+#include <cJSON.h>
 
 #include "nrf_cloud_fota.h"
 #include "ble.h"
@@ -17,18 +18,19 @@
 #define DFU_BUTTONLESS_UUID    "8EC90003F3154F609FB8838830DAEA50"
 #define MAX_CHUNK_SIZE 20
 #define PROGRESS_UPDATE_INTERVAL 5
+#define MAX_FOTA_FILES 2
 
 #define CALL_TO_PRINTK(fmt, ...) do {		 \
 		printk(fmt "\n", ##__VA_ARGS__); \
 	} while (false)
 
-#define LOGPKINF(...)   do {    				     \
-				if (use_printk) {       	     \
+#define LOGPKINF(...)	do {					     \
+				if (use_printk) {		     \
 					CALL_TO_PRINTK(__VA_ARGS__); \
 				} else {			     \
 					LOG_INF(__VA_ARGS__);        \
-				}       			     \
-			} while (false)
+				}				     \
+		      } while (false)
 
 #define STRDUP(x) use_printk ? (x) : log_strdup(x)
 
@@ -113,7 +115,14 @@ static uint32_t page_remaining;
 static uint8_t notify_data[MAX_CHUNK_SIZE];
 static char ble_addr[BT_ADDR_STR_LEN];
 struct notify_packet *notify_packet_data = (struct notify_packet *)notify_data;
+
 static struct nrf_cloud_fota_ble_job fota_ble_job;
+static struct nrf_cloud_fota_job_info fota_files[MAX_FOTA_FILES];
+static int total_completed_size;
+static int active_num;
+static int num_fota_files;
+static struct k_work_delayable fota_job_work;
+
 static char app_version[16];
 static int image_size;
 static uint16_t original_crc;
@@ -141,6 +150,9 @@ static int download_client_callback(const struct download_client_evt *event);
 static void cancel_dfu(enum nrf_cloud_fota_error error);
 static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 			      const ble_job);
+static void free_job(void);
+static bool start_next_job(void);
+static void fota_job_next(struct k_work *work);
 
 LOG_MODULE_REGISTER(peripheral_dfu, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
 
@@ -258,6 +270,8 @@ int peripheral_dfu_init(void)
 {
 	int err;
 
+	k_work_init_delayable(&fota_job_work, fota_job_next);
+
 	err = download_client_init(&dlc, download_client_callback);
 	if (err) {
 		return err;
@@ -340,6 +354,14 @@ static int download_client_callback(const struct download_client_evt *event)
 
 	switch (event->id) {
 	case DOWNLOAD_CLIENT_EVT_FRAGMENT:
+		if (first_fragment) {
+			err = download_client_file_size_get(&dlc, &image_size);
+			if (err) {
+				LOG_ERR("Error determining file size: %d", err);
+			} else {
+				LOG_INF("Downloading %zd bytes", image_size);
+			}
+		}
 		err = peripheral_dfu(event->fragment.buf,
 				     event->fragment.len);
 		if (err) {
@@ -353,6 +375,7 @@ static int download_client_callback(const struct download_client_evt *event)
 			LOG_ERR("Error disconnecting from download client: %d",
 				err);
 		}
+		k_work_reschedule(&fota_job_work, K_SECONDS(1));
 		break;
 	case DOWNLOAD_CLIENT_EVT_ERROR: {
 		/* In case of socket errors we can return 0 to retry/continue,
@@ -400,6 +423,10 @@ static int start_ble_job(struct nrf_cloud_fota_ble_job *const ble_job)
 	} else {
 		LOG_INF("Downloading update");
 		status = NRF_CLOUD_FOTA_IN_PROGRESS;
+		if (total_completed_size) {
+			/* not the first file, so no progress needed here */
+			return ret;
+		}
 	}
 	(void)nrf_cloud_fota_ble_job_update(ble_job, status);
 
@@ -433,33 +460,141 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 		return;
 	}
 
+	memset(fota_files, 0, sizeof(fota_files));
+	num_fota_files = 0;
+
+	int i;
+	char *end;
+	char *path = ble_job->info.path;
+	bool done = false;
+
+	/* separate out various file paths to download */
+	for (i = 0; i < MAX_FOTA_FILES; i++) {
+		end = strchr(path, ' ');
+		if (!end) {
+			end = &path[strlen(path)];
+			done = true;
+		}
+		fota_files[i].path = k_calloc(1 + end - path, 1);
+		if (!fota_files[i].path) {
+			LOG_ERR("out of memory");
+			return;
+		}
+		memcpy(fota_files[i].path, path, end - path);
+		path = end + 1;
+		num_fota_files++;
+		if (done) {
+			break;
+		}
+	}
+
+	/* fix up order of files based on type */
+	for (i = 0; i < MAX_FOTA_FILES; i++) {
+		if (strstr(fota_files[i].path, ".dat")) {
+			if (i) { /* .dat is not first; make it so */
+				char *tmp = fota_files[0].path;
+
+				fota_files[0].path = fota_files[i].path;
+				fota_files[i].path = tmp;
+			}
+			break;
+		}
+	}
+
+	active_num = 0;
+	total_completed_size = 0;
+	fota_ble_job.info.path = fota_files[active_num].path;
+
 	/* job structure will disappear after this callback, so make a copy */
 	fota_ble_job.ble_id = ble_job->ble_id;
 	fota_ble_job.info.type = ble_job->info.type;
 	fota_ble_job.info.id = strdup(ble_job->info.id);
 	fota_ble_job.info.host = strdup(ble_job->info.host);
-	fota_ble_job.info.path = strdup(ble_job->info.path);
+	/* total size of all files */
 	fota_ble_job.info.file_size = ble_job->info.file_size;
 	fota_ble_job.error = NRF_CLOUD_FOTA_ERROR_NONE;
 
-	LOG_INF("starting BLE DFU to addr:%s, from host:%s, "
-		"path:%s, size:%d, init:%d, ver:%s, crc:%u, "
-		"sec_tag:%d, apn:%s, frag_size:%zd",
-		log_strdup(addr), log_strdup(ble_job->info.host),
-		log_strdup(ble_job->info.path), ble_job->info.file_size,
-		init_packet, ver, crc, sec_tag,
-		apn ? apn : "<n/a>", frag);
+	LOG_INF("starting BLE DFU to addr:%s, from host:%s, size:%d, "
+		"init:%d, ver:%s, crc:%u, sec_tag:%d, apn:%s, frag_size:%zd",
+		log_strdup(addr), log_strdup(fota_ble_job.info.host),
+		fota_ble_job.info.file_size,
+		init_packet, log_strdup(ver), crc, sec_tag,
+		apn ? log_strdup(apn) : "<n/a>", frag);
+	LOG_INF("num files:%d", num_fota_files);
+	for (i = 0; i < MAX_FOTA_FILES; i++) {
+		if (!fota_files[i].path) {
+			break;
+		}
+		LOG_INF("file:%d path:%s", i + 1, log_strdup(fota_files[i].path));
+	}
 
 	(void)start_ble_job(&fota_ble_job);
+}
+
+static void fota_job_next(struct k_work *work)
+{
+	if (!start_next_job()) {
+		ble_conn_mgr_force_dfu_rediscover(ble_addr);
+		ble_register_notify_callback(NULL);
+		LOGPKINF("DFU complete");
+		free_job();
+		k_sem_give(&peripheral_dfu_active);
+		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
+			log_strdup(k_thread_name_get(k_current_get())));
+	}
+}
+
+static bool start_next_job(void)
+{
+	/* select next job */
+	active_num++;
+	if (active_num >= num_fota_files) {
+		LOG_INF("No more files.  Done.");
+		return false;
+	}
+	fota_ble_job.info.path = fota_files[active_num].path;
+	fota_ble_job.error = NRF_CLOUD_FOTA_ERROR_NONE;
+
+	if (!ble_conn_mgr_is_addr_connected(ble_addr)) {
+		/* TODO: add ability to queue? */
+		LOG_ERR("Device not connected; cancelling remainder of job");
+		cancel_dfu(NRF_CLOUD_FOTA_ERROR_APPLY_FAIL);
+		return true;
+	}
+
+	/* update globals */
+	init_packet = strstr(fota_ble_job.info.path, ".dat") != NULL;
+
+	LOG_INF("starting second BLE DFU to addr:%s, from host:%s, "
+		"path:%s, size:%d, init:%d",
+		log_strdup(ble_addr), log_strdup(fota_ble_job.info.host),
+		log_strdup(fota_ble_job.info.path), fota_ble_job.info.file_size,
+		init_packet);
+
+	int err = start_ble_job(&fota_ble_job);
+
+	return (err == 0);
 }
 
 static void free_job(void)
 {
 	if (fota_ble_job.info.id) {
 		free(fota_ble_job.info.id);
-		free(fota_ble_job.info.host);
-		free(fota_ble_job.info.path);
+		fota_ble_job.info.id = NULL;
+		if (fota_ble_job.info.host) {
+			free(fota_ble_job.info.host);
+			fota_ble_job.info.host = NULL;
+		}
 		memset(&fota_ble_job, 0, sizeof(fota_ble_job));
+	}
+
+	for (int i = 0; i < MAX_FOTA_FILES; i++) {
+		if (!fota_files[i].path) {
+			break;
+		}
+		k_free(fota_files[i].path);
+		fota_files[i].path = NULL;
+		fota_files[i].file_size = 0;
 	}
 }
 
@@ -467,14 +602,13 @@ static void cancel_dfu(enum nrf_cloud_fota_error error)
 {
 	ble_register_notify_callback(NULL);
 	if (fota_ble_job.info.id) {
-		char addr[BT_ADDR_LE_STR_LEN];
 		enum nrf_cloud_fota_status status;
 		int err;
 
-		bt_addr_to_str(&fota_ble_job.ble_id, addr, sizeof(addr));
-
-		LOG_INF("Sending DFU Abort...");
-		send_abort(addr);
+		if (ble_conn_mgr_is_addr_connected(ble_addr)) {
+			LOG_INF("Sending DFU Abort...");
+			send_abort(ble_addr);
+		}
 
 		/* TODO: adjust error according to actual failure */
 		fota_ble_job.error = error;
@@ -533,7 +667,8 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 		LOGPKINF("BLE DFU starting to %s...", STRDUP(ble_addr));
 
 		if (fota_ble_job.info.id) {
-			fota_ble_job.dl_progress = 0;
+			fota_ble_job.dl_progress = (100 * total_completed_size) /
+						   fota_ble_job.info.file_size;
 			err = nrf_cloud_fota_ble_job_update(&fota_ble_job,
 						    NRF_CLOUD_FOTA_DOWNLOADING);
 			if (err) {
@@ -545,9 +680,9 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 				return err;
 			}
 		}
-		completed_size = 0;
 		prev_percent = 0;
 		prev_update_percent = 0;
+		completed_size = 0;
 		prev_crc = 0;
 		page_remaining = 0;
 		finish_page = false;
@@ -697,6 +832,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 		prev_crc = crc32_ieee_update(prev_crc, buf, page_len);
 
 		completed_size += page_len;
+		total_completed_size += page_len;
 		len -= page_len;
 		buf += page_len;
 		LOG_DBG("Completed size: %u", completed_size);
@@ -763,7 +899,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 	}
 
 	if (download_size) {
-		percent = (100 * completed_size) / download_size;
+		percent = (100 * total_completed_size) / fota_ble_job.info.file_size;
 	}
 
 	if (percent != prev_percent) {
@@ -795,16 +931,6 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 			}
 			prev_update_percent = percent;
 		}
-	}
-
-	if (percent >= 100) {
-		ble_conn_mgr_force_dfu_rediscover(ble_addr);
-		ble_register_notify_callback(NULL);
-		LOGPKINF("DFU complete");
-		free_job();
-		k_sem_give(&peripheral_dfu_active);
-		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-			log_strdup(k_thread_name_get(k_current_get())));
 	}
 
 	return err;
