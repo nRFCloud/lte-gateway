@@ -54,7 +54,7 @@ static bool desired_conns_strings = false;
 #define CJPRINT(_a_, _b_, _c_, _d_) do { \
 	int _e_ = cJSON_PrintPreallocated((_a_), (_b_), (_c_), (_d_)); \
 	if (!_e_) { \
-		LOG_ERR("insufficient buffer size %d", (_c_)); \
+		LOG_ERR("Insufficient buffer size %d", (_c_)); \
 		goto cleanup; \
 	} \
 } while (0)
@@ -134,7 +134,7 @@ char *get_time_str(char *dst, size_t len)
 		}
 	} else {
 		dst = NULL;
-		LOG_ERR("date/time not available: %d", err);
+		LOG_ERR("Date/time not available: %d", err);
 	}
 #else
 	struct tm tm;
@@ -1257,7 +1257,7 @@ static int gateway_state_handler(void *root_obj)
 			}
 			/* new device found in cloud's array */
 			if (!found) {
-				LOG_INF("new device added by cloud: %s",
+				LOG_INF("New device added by cloud: %s",
 					log_strdup(addr));
 				changed = true;
 				break;
@@ -1288,7 +1288,7 @@ static int gateway_state_handler(void *root_obj)
 
 		/* device removed from cloud's array */
 		if (!found) {
-			LOG_INF("device removed by cloud: %s",
+			LOG_INF("Device removed by cloud: %s",
 				log_strdup(cons[i].addr));
 			changed = true;
 			break;
@@ -1296,10 +1296,10 @@ static int gateway_state_handler(void *root_obj)
 	}
 
 	if (!changed) {
-		LOG_INF("ignoring gateway state change");
+		LOG_INF("Ignoring gateway state change");
 		return 0;
 	}
-	LOG_DBG("gateway state change detected");
+	LOG_DBG("Gateway state change detected");
 
 	ble_conn_mgr_clear_desired(false);
 
@@ -1320,7 +1320,7 @@ static int gateway_state_handler(void *root_obj)
 			}
 			ble_conn_mgr_update_desired(addr, i);
 		} else {
-			LOG_ERR("invalid desired connection");
+			LOG_ERR("Invalid desired connection");
 			return -EINVAL;
 		}
 	}
