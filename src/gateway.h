@@ -4,7 +4,7 @@
 #define NRF_CLOUD_CLIENT_ID_LEN  10
 extern char gateway_id[NRF_CLOUD_CLIENT_ID_LEN+1];
 
-struct nct_gw_data;
+struct nrf_cloud_gw_data;
 
 void device_shutdown(bool reboot);
 void control_cloud_connection(bool enable);

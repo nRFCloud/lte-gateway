@@ -31,6 +31,7 @@ struct ble_scanned_dev {
 };
 
 struct ble_device_conn;
+struct desired_conn;
 
 typedef int (*notification_cb_t)(const char *ble_addr, const char *chrc_uuid,
 				  uint8_t *data, uint16_t len);
@@ -53,11 +54,12 @@ void bt_to_upper(char *addr, uint8_t addr_len);
 int disconnect_device_by_addr(char *ble_addr);
 void ble_clear_discover_inprogress();
 int device_discovery_send(struct ble_device_conn *conn_ptr);
-int update_shadow(char *ble_address, bool connecting, bool connected);
 struct ble_scanned_dev *get_scanned_device(unsigned int i);
 int get_num_scan_results(void);
 int get_num_scan_names(void);
 void ble_stop_activity(void);
-int setup_gw_shadow(void *modem);
+int set_shadow_desired_conn(struct desired_conn *desired, int num_desired);
+int set_shadow_ble_conn(char *ble_address, bool connecting, bool connected);
+int set_shadow_modem(void *modem);
 
 #endif /* _BLE_H_ */
