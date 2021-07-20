@@ -93,12 +93,11 @@ void print_fw_info(const struct shell *shell)
 		shell_print(shell, "Boot:   \t0x%08x", info->boot_address);
 		shell_print(shell, "Valid:  \t%u", info->valid);
 
-		struct cloud_backend *backend = cloud_get_binding("NRF_CLOUD");
-
-		if (backend) {
-			cloud_get_id(backend, id, sizeof(id));
+		if (nrf_cloud_client_id_get(id, sizeof(id)) == 0) {
+			shell_print(shell, "Dev ID: \t%s", id);
+		} else {
+			shell_print(shell, "Dev ID: unknown");
 		}
-		shell_print(shell, "Dev ID: \t%s", id);
 	}
 }
 
@@ -271,8 +270,8 @@ static void print_cloud_info(const struct shell *shell)
 	char stage[8];
 	char tenant_id[40];
 
-	nct_gw_get_stage(stage, sizeof(stage));
-	nct_gw_get_tenant_id(tenant_id, sizeof(tenant_id));
+	nct_stage_get(stage, sizeof(stage));
+	nrf_cloud_tenant_id_get(tenant_id, sizeof(tenant_id));
 	print_connection_status(shell);
 
 	shell_print(shell, "nrfcloud stage: \t%s", stage);
@@ -463,7 +462,7 @@ static int ble_conn_save(const struct shell *shell)
 	int num;
 	struct desired_conn *desired = get_desired_array(&num);
 
-	return nrf_cloud_update_gateway_state(desired, num);
+	return set_shadow_desired_conn(desired, num);
 }
 
 static int ble_conn_mac(const struct shell *shell, char *addr)
@@ -1393,18 +1392,18 @@ static int cmd_session(const struct shell *shell, size_t argc, char **argv)
 {
 	if (argc < 2) {
 		shell_print(shell, "Persistent sessions = %d",
-			    get_session_state());
+			    nct_get_session_state());
 	} else {
 		int flag = atoi(argv[1]);
 
-		if ((get_session_state() == 0) && (flag == 1)) {
+		if ((nct_get_session_state() == 0) && (flag == 1)) {
 			shell_warn(shell, "Setting persistent sessions true "
 					  "when it is not, may result "
 					  "in data loss; use at your own "
 					  "risk.");
 		}
 		shell_print(shell, "Setting persistent sessions = %d", flag);
-		save_session_state(flag);
+		nct_save_session_state(flag);
 	}
 	return 0;
 }

@@ -40,7 +40,7 @@ static void process_connection(int i)
 			dev->added_to_allowlist = true;
 			LOG_INF("Device added to allowlist.");
 		}
-		err = update_shadow(dev->addr, true, false);
+		err = set_shadow_ble_conn(dev->addr, true, false);
 		if (!err) {
 			dev->shadow_updated = true;
 			LOG_INF("Shadow updated.");
