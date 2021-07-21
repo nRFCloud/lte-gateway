@@ -52,7 +52,7 @@ static void process_connection(int i)
 	 */
 	if (dev->connected && !dev->discovered && !dev->discovering) {
 
-		err = ble_discover(dev->addr);
+		err = ble_discover(dev);
 
 		if (!err) {
 			LOG_DBG("ble_discover(%s) failed: %d",
@@ -111,13 +111,7 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
 
 static void init_conn(struct ble_device_conn *dev)
 {
-	dev->connected = false;
-	dev->disconnect = false;
-	dev->discovering = false;
-	dev->discovered = false;
-	dev->added_to_allowlist = false;
-	dev->encode_discovered = false;
-	dev->shadow_updated = false;
+	memset(dev, 0, sizeof(struct ble_device_conn));
 	dev->free = true;
 }
 
@@ -126,12 +120,13 @@ static void ble_conn_mgr_conn_reset(struct ble_device_conn
 {
 	struct uuid_handle_pair *uuid_handle;
 
+	LOG_INF("Connection removed to %s", log_strdup(dev->addr));
+
 	if (!dev->free) {
 		if (num_connected) {
 			num_connected--;
 		}
 	}
-	init_conn(dev);
 
 	/* free in backwards order to try to reduce fragmentation */
 	while (dev->num_pairs) {
@@ -142,8 +137,7 @@ static void ble_conn_mgr_conn_reset(struct ble_device_conn
 		}
 		dev->num_pairs--;
 	}
-
-	LOG_INF("Conn Removed to %s", log_strdup(dev->addr));
+	init_conn(dev);
 }
 
 void ble_conn_mgr_update_connections(void)
@@ -172,7 +166,7 @@ void ble_conn_mgr_update_connections(void)
 			if (dev->disconnect) {
 				int err;
 
-				LOG_INF("cloud: disconnect device %s",
+				LOG_INF("Cloud: disconnect device %s",
 					log_strdup(dev->addr));
 				if (dev->added_to_allowlist) {
 					if (!ble_add_to_allowlist(dev->addr, false)) {
@@ -194,7 +188,7 @@ void ble_conn_mgr_update_connections(void)
 	}
 }
 
-void ble_conn_mgr_change_desired(char *addr, uint8_t index,
+void ble_conn_mgr_change_desired(const char *addr, uint8_t index,
 				 bool active, bool manual)
 {
 	if (index <= CONFIG_BT_MAX_CONN) {
@@ -218,7 +212,7 @@ struct desired_conn *get_desired_array(int *array_size)
 	return desired_connections;
 }
 
-static int find_desired_connection(char *addr,
+static int find_desired_connection(const char *addr,
 				   struct desired_conn **pcon)
 {
 	struct desired_conn *con;
@@ -239,12 +233,12 @@ static int find_desired_connection(char *addr,
 	return -EINVAL;
 }
 
-void ble_conn_mgr_update_desired(char *addr, uint8_t index)
+void ble_conn_mgr_update_desired(const char *addr, uint8_t index)
 {
 	ble_conn_mgr_change_desired(addr, index, true, false);
 }
 
-int ble_conn_mgr_add_desired(char *addr, bool manual)
+int ble_conn_mgr_add_desired(const char *addr, bool manual)
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		if (!desired_connections[i].active) {
@@ -255,7 +249,7 @@ int ble_conn_mgr_add_desired(char *addr, bool manual)
 	return -EINVAL;
 }
 
-int ble_conn_mgr_rem_desired(char *addr, bool manual)
+int ble_conn_mgr_rem_desired(const char *addr, bool manual)
 {
 	if (addr == NULL) {
 		return -EINVAL;
@@ -281,7 +275,7 @@ void ble_conn_mgr_clear_desired(bool all)
 	}
 }
 
-bool ble_conn_mgr_enabled(char *addr)
+bool ble_conn_mgr_enabled(const char *addr)
 {
 	struct desired_conn *con;
 
@@ -316,7 +310,7 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 
 	uuid_handle = find_pair_by_handle(handle, conn_ptr, &i);
 	if (uuid_handle == NULL) {
-		LOG_ERR("path not generated; handle %u not found for addr %s",
+		LOG_ERR("Path not generated; handle %u not found for addr %s",
 			handle, log_strdup(conn_ptr->addr));
 		return -ENXIO;
 	}
@@ -329,14 +323,14 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 	if (ccc && ((i + 1) < conn_ptr->num_pairs)) {
 		uuid_handle = conn_ptr->uuid_handle_pairs[i + 1];
 		if (uuid_handle == NULL) {
-			LOG_ERR("path not generated; handle after %u "
+			LOG_ERR("Path not generated; handle after %u "
 				"not found for addr %s",
 				handle, log_strdup(conn_ptr->addr));
 			return -ENXIO;
 		}
 		get_uuid_str(uuid_handle, ccc_uuid, BT_UUID_STR_LEN);
 	} else {
-		LOG_DBG("no ccc; end of the array");
+		LOG_DBG("No ccc; end of the array");
 		ccc_uuid[0] = '\0';
 		ccc = false;
 	}
@@ -349,7 +343,7 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 		if (uuid_handle->is_service) {
 			get_uuid_str(uuid_handle, service_uuid,
 				     BT_UUID_STR_LEN);
-			LOG_DBG("service uuid in path %s",
+			LOG_DBG("Service uuid in path %s",
 				log_strdup(service_uuid));
 			break;
 		}
@@ -371,7 +365,7 @@ int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
 	return 0;
 }
 
-int ble_conn_mgr_add_conn(char *addr)
+int ble_conn_mgr_add_conn(const char *addr)
 {
 	int err = 0;
 	struct ble_device_conn *connected_ble_ptr;
@@ -395,22 +389,19 @@ int ble_conn_mgr_add_conn(char *addr)
 
 	memcpy(connected_ble_ptr->addr, addr, DEVICE_ADDR_LEN);
 	connected_ble_ptr->free = false;
+	err = bt_addr_le_from_str(addr, "random", &connected_ble_ptr->bt_addr);
+	if (err) {
+		LOG_ERR("Address from string failed (err %d)", err);
+	}
 	num_connected++;
 	LOG_INF("BLE conn to %s added to manager", log_strdup(addr));
 	return err;
 }
 
-int ble_conn_set_connected(char *addr, bool connected)
+int ble_conn_set_connected(struct ble_device_conn *connected_ble_ptr,
+			   bool connected)
 {
 	int err = 0;
-	struct ble_device_conn *connected_ble_ptr;
-
-	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
-
-	if (err) {
-		LOG_ERR("Conn %s not found", log_strdup(addr));
-		return err;
-	}
 
 	if (connected) {
 		connected_ble_ptr->connected = true;
@@ -422,15 +413,14 @@ int ble_conn_set_connected(char *addr, bool connected)
 	return err;
 }
 
-int ble_conn_mgr_rediscover(char *addr)
+int ble_conn_mgr_rediscover(const char *addr)
 {
 	int err = 0;
 	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
-
 	if (err) {
-		LOG_ERR("Can't find conn to disconnect");
+		LOG_ERR("Connection not found for addr %s", log_strdup(addr));
 		return err;
 	}
 
@@ -445,7 +435,6 @@ int ble_conn_mgr_rediscover(char *addr)
 				err = device_discovery_send(connected_ble_ptr);
 			}
 		} else {
-			connected_ble_ptr->discovered = false;
 			connected_ble_ptr->num_pairs = 0;
 		}
 	}
@@ -453,11 +442,10 @@ int ble_conn_mgr_rediscover(char *addr)
 	return err;
 }
 
-/* nRF5 SDK devices use their normal MAC address with the least significant bit
- * of the least significant byte complemented for the DFU bootloader MAC
- * address
+/* an nRF5 SDK device's normal MAC address least significant byte is
+ * incremented for the DFU bootloader MAC address
  */
-int ble_conn_mgr_find_related_addr(char *old_addr, char *new_addr, int len)
+int ble_conn_mgr_calc_other_addr(const char *old_addr, char *new_addr, int len, bool normal)
 {
 	bt_addr_le_t btaddr;
 	int err;
@@ -467,22 +455,26 @@ int ble_conn_mgr_find_related_addr(char *old_addr, char *new_addr, int len)
 		LOG_ERR("Could not convert address");
 		return err;
 	}
-	btaddr.a.val[0] ^= 1;
+	if (normal) {
+		btaddr.a.val[0]--;
+	} else {
+		btaddr.a.val[0]++;
+	}
 
+	memset(new_addr, 0, len);
 	bt_addr_le_to_str(&btaddr, new_addr, len);
 	bt_to_upper(new_addr, len);
 	return 0;
 }
 
-int ble_conn_mgr_force_dfu_rediscover(char *addr)
+int ble_conn_mgr_force_dfu_rediscover(const char *addr)
 {
 	int err = 0;
 	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
-
 	if (err) {
-		LOG_ERR("Can't find conn to rediscover: %s", log_strdup(addr));
+		LOG_ERR("Connection not found for addr %s", log_strdup(addr));
 		return err;
 	}
 
@@ -493,38 +485,17 @@ int ble_conn_mgr_force_dfu_rediscover(char *addr)
 		connected_ble_ptr->num_pairs = 0;
 	}
 
-	char related_addr[DEVICE_ADDR_LEN];
-
-	err = ble_conn_mgr_find_related_addr(addr, related_addr,
-					     DEVICE_ADDR_LEN);
-	if (err) {
-		return err;
-	}
-
-	err = ble_conn_mgr_get_conn_by_addr(related_addr, &connected_ble_ptr);
-	if (err) {
-		LOG_ERR("Can't find conn to rediscover: %s",
-			log_strdup(related_addr));
-		return err;
-	}
-
-	if (!connected_ble_ptr->discovering) {
-		LOG_INF("Marking device %s to be rediscovered",
-			log_strdup(related_addr));
-		connected_ble_ptr->discovered = false;
-		connected_ble_ptr->num_pairs = 0;
-	}
 	return 0;
 }
 
-int ble_conn_mgr_remove_conn(char *addr)
+int ble_conn_mgr_remove_conn(const char *addr)
 {
 	int err = 0;
 	struct ble_device_conn *connected_ble_ptr;
 
 	err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
 	if (err) {
-		LOG_ERR("Can't find conn %s to remove", log_strdup(addr));
+		LOG_ERR("Connection not found for addr %s", log_strdup(addr));
 		return err;
 	}
 
@@ -542,11 +513,30 @@ int ble_conn_mgr_get_free_conn(struct ble_device_conn **conn_ptr)
 			return 0;
 		}
 	}
-	return 1;
+	return -ENOMEM;
 }
 
+void ble_conn_mgr_check_pending(void)
+{
+	struct ble_device_conn *conn_ptr = connected_ble_devices;
 
-int ble_conn_mgr_get_conn_by_addr(char *addr, struct ble_device_conn **conn_ptr)
+	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++, conn_ptr++) {
+		if (conn_ptr->connected && conn_ptr->dfu_pending) {
+			if (conn_ptr->dfu_attempts) {
+				conn_ptr->dfu_attempts--;
+			} else {
+				conn_ptr->dfu_pending = false;
+				continue;
+			}
+			LOG_INF("Requesting pending DFU job for %s",
+				log_strdup(conn_ptr->addr));
+			nrf_cloud_fota_ble_update_check(&conn_ptr->bt_addr.a);
+			break;
+		}
+	}
+}
+
+int ble_conn_mgr_get_conn_by_addr(const char *addr, struct ble_device_conn **conn_ptr)
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		if (!strcmp(addr, connected_ble_devices[i].addr)) {
@@ -555,12 +545,11 @@ int ble_conn_mgr_get_conn_by_addr(char *addr, struct ble_device_conn **conn_ptr)
 			return 0;
 		}
 	}
-	LOG_ERR("No Conn Found for addr %s", log_strdup(addr));
-	return 1;
+	return -ENOENT;
 
 }
 
-bool ble_conn_mgr_is_addr_connected(char *addr)
+bool ble_conn_mgr_is_addr_connected(const char *addr)
 {
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		if (!strcmp(addr, connected_ble_devices[i].addr)) {
@@ -667,7 +656,7 @@ int ble_conn_mgr_get_uuid_by_handle(uint16_t handle, char *uuid,
 }
 
 
-int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, char *uuid,
+int ble_conn_mgr_get_handle_by_uuid(uint16_t *handle, const char *uuid,
 				     struct ble_device_conn *conn_ptr)
 {
 	char str[BT_UUID_STR_LEN];
@@ -717,7 +706,7 @@ int ble_conn_mgr_add_uuid_pair(const struct bt_uuid *uuid, uint16_t handle,
 	char str[BT_UUID_STR_LEN];
 
 	if (!conn_ptr) {
-		LOG_ERR("no connection ptr!");
+		LOG_ERR("No connection ptr!");
 		return -EINVAL;
 	}
 
@@ -829,6 +818,5 @@ void ble_conn_mgr_init()
 	num_connected = 0;
 	for (int i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		init_conn(&connected_ble_devices[i]);
-		connected_ble_devices[i].free = true;
 	}
 }

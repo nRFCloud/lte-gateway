@@ -13,9 +13,12 @@
 #include "ble_conn_mgr.h"
 #include "peripheral_dfu.h"
 
-#define DFU_CONTROL_POINT_UUID "8EC90001F3154F609FB8838830DAEA50"
-#define DFU_PACKET_UUID        "8EC90002F3154F609FB8838830DAEA50"
-#define DFU_BUTTONLESS_UUID    "8EC90003F3154F609FB8838830DAEA50"
+LOG_MODULE_REGISTER(peripheral_dfu, CONFIG_NRF_CLOUD_FOTA_LOG_LEVEL);
+
+#define DFU_CONTROL_POINT_UUID     "8EC90001F3154F609FB8838830DAEA50"
+#define DFU_PACKET_UUID            "8EC90002F3154F609FB8838830DAEA50"
+#define DFU_BUTTONLESS_UUID        "8EC90003F3154F609FB8838830DAEA50"
+#define DFU_BUTTONLESS_BONDED_UUID "8EC90004F3154F609FB8838830DAEA50"
 #define MAX_CHUNK_SIZE 20
 #define PROGRESS_UPDATE_INTERVAL 5
 #define MAX_FOTA_FILES 2
@@ -64,6 +67,24 @@ enum nrf_dfu_result_t {
   NRF_DFU_RES_CODE_EXT_ERROR = 0x0B
 };
 
+typedef enum
+{
+    NRF_DFU_EXT_ERROR_NO_ERROR = 0x00,
+    NRF_DFU_EXT_ERROR_INVALID_ERROR_CODE = 0x01,
+    NRF_DFU_EXT_ERROR_WRONG_COMMAND_FORMAT = 0x02,
+    NRF_DFU_EXT_ERROR_UNKNOWN_COMMAND = 0x03,
+    NRF_DFU_EXT_ERROR_INIT_COMMAND_INVALID = 0x04,
+    NRF_DFU_EXT_ERROR_FW_VERSION_FAILURE = 0x05,
+    NRF_DFU_EXT_ERROR_HW_VERSION_FAILURE = 0x06,
+    NRF_DFU_EXT_ERROR_SD_VERSION_FAILURE = 0x07,
+    NRF_DFU_EXT_ERROR_SIGNATURE_MISSING = 0x08,
+    NRF_DFU_EXT_ERROR_WRONG_HASH_TYPE = 0x09,
+    NRF_DFU_EXT_ERROR_HASH_FAILED = 0x0A,
+    NRF_DFU_EXT_ERROR_WRONG_SIGNATURE_TYPE = 0x0B,
+    NRF_DFU_EXT_ERROR_VERIFICATION_FAILED = 0x0C,
+    NRF_DFU_EXT_ERROR_INSUFFICIENT_SPACE = 0x0D,
+} nrf_dfu_ext_error_code_t;
+
 enum  nrf_dfu_firmware_type_t {
   NRF_DFU_FIRMWARE_TYPE_SOFTDEVICE = 0x00,
   NRF_DFU_FIRMWARE_TYPE_APPLICATION = 0x01,
@@ -71,7 +92,7 @@ enum  nrf_dfu_firmware_type_t {
   NRF_DFU_FIRMWARE_TYPE_UNKNOWN = 0xFF
 };
 
-struct notify_packet {
+struct dfu_notify_packet {
 	uint8_t magic;
 	uint8_t op;
 	uint8_t result;
@@ -98,23 +119,63 @@ struct notify_packet {
 			uint32_t addr;
 			uint32_t len;
 		} fw;
+		uint8_t ext_err_code;
 	};
+} __attribute__((packed));
+
+enum ble_dfu_buttonless_op_code_t
+{
+	DFU_OP_RESERVED = 0x00,
+	DFU_OP_ENTER_BOOTLOADER = 0x01,
+	DFU_OP_SET_ADV_NAME = 0x02,
+	DFU_OP_RESPONSE_CODE = 0x20
+};
+
+enum ble_dfu_buttonless_rsp_code_t
+{
+	DFU_RSP_INVALID = 0x00,
+	DFU_RSP_SUCCESS = 0x01,
+	DFU_RSP_OP_CODE_NOT_SUPPORTED = 0x02,
+	DFU_RSP_OPERATION_FAILED = 0x04,
+	DFU_RSP_ADV_NAME_INVALID = 0x05,
+	DFU_RSP_BUSY = 0x06,
+	DFU_RSP_NOT_BONDED = 0x07
+};
+
+struct secure_dfu_ind_packet {
+	uint8_t resp_code;
+	uint8_t op_code;
+	uint8_t rsp_code;
 } __attribute__((packed));
 
 K_SEM_DEFINE(peripheral_dfu_active, 1, 1);
 static size_t download_size;
 static size_t completed_size;
 static bool finish_page;
-static bool notify_received;
 static bool test_mode;
 static bool verbose;
-static uint16_t notify_length;
 static uint32_t max_size;
 static uint32_t flash_page_size;
 static uint32_t page_remaining;
-static uint8_t notify_data[MAX_CHUNK_SIZE];
-static char ble_addr[BT_ADDR_STR_LEN];
-struct notify_packet *notify_packet_data = (struct notify_packet *)notify_data;
+
+/* responses from peripheral device */
+static bool notify_received;
+static bool normal_mode;
+static uint16_t notify_length;
+static uint8_t dfu_notify_data[MAX_CHUNK_SIZE];
+
+/* normal mode BLE device address */
+static char ble_norm_addr[BT_ADDR_STR_LEN];
+/* normal mode secure DFU responses */
+struct secure_dfu_ind_packet *secure_dfu_ind_packet_data =
+	(struct secure_dfu_ind_packet *) dfu_notify_data;
+
+/* DFU mode BLE device address */
+static char ble_dfu_addr[BT_ADDR_STR_LEN];
+struct ble_device_conn *dfu_conn_ptr;
+/* DFU mode protocol responses */
+struct dfu_notify_packet *dfu_notify_packet_data =
+	(struct dfu_notify_packet *)dfu_notify_data;
 
 static struct nrf_cloud_fota_ble_job fota_ble_job;
 static struct nrf_cloud_fota_job_info fota_files[MAX_FOTA_FILES];
@@ -134,6 +195,7 @@ static struct download_client dlc;
 
 static int send_select_command(char *ble_addr);
 static int send_create_command(char *ble_addr, uint32_t size);
+static int send_switch_to_dfu(char *ble_addr);
 static int send_select_data(char *ble_addr);
 static int send_create_data(char *ble_addr, uint32_t size);
 static int send_prn(char *ble_addr, uint16_t receipt_rate);
@@ -154,8 +216,6 @@ static void free_job(void);
 static bool start_next_job(void);
 static void fota_job_next(struct k_work *work);
 
-LOG_MODULE_REGISTER(peripheral_dfu, CONFIG_NRF_CLOUD_GATEWAY_LOG_LEVEL);
-
 void peripheral_dfu_set_test_mode(bool test)
 {
 	test_mode = test;
@@ -164,22 +224,33 @@ void peripheral_dfu_set_test_mode(bool test)
 static int notification_callback(const char *addr, const char *chrc_uuid,
 				 uint8_t *data, uint16_t len)
 {
-	if (strcmp(addr, ble_addr) != 0) {
+	if ((strcmp(addr, ble_norm_addr) != 0) &&
+	    (strcmp(addr, ble_dfu_addr) != 0)) {
+		LOG_WRN("Notification received for %s (not us)", log_strdup(addr));
 		return 0; /* not for us */
 	}
-	if (strcmp(chrc_uuid, DFU_CONTROL_POINT_UUID) != 0) {
+	/** @TODO: implement bonded mode also */
+	if (strcmp(chrc_uuid, DFU_BUTTONLESS_UUID) == 0) {
+		normal_mode = true;
+	}
+	else if (strcmp(chrc_uuid, DFU_CONTROL_POINT_UUID) == 0) {
+		normal_mode = false;
+	} else {
+		LOG_WRN("Notification received for wrong UUID:%s", log_strdup(chrc_uuid));
 		return 0; /* not for us */
 	}
-	notify_length = MIN(len, sizeof(notify_data));
-	memcpy(notify_data, data, notify_length);
+	notify_length = MIN(len, sizeof(dfu_notify_data));
+	memcpy(dfu_notify_data, data, notify_length);
 	notify_received = true;
-	LOG_DBG("dfu notified %u bytes", notify_length);
+	LOG_DBG("%sdfu notified %u bytes", normal_mode ? "secure " : "", notify_length);
+	LOG_HEXDUMP_DBG(data, notify_length, "notify packet");
 	return 1;
 }
 
 static int wait_for_notification(void)
 {
-	int max_loops = 500;
+	int max_loops = 1000;
+
 	while (!notify_received) {
 		k_sleep(K_MSEC(10));
 		if (!max_loops--) {
@@ -189,9 +260,48 @@ static int wait_for_notification(void)
 	return 0;
 }
 
-static int decode_notification(void)
+static int decode_secure_dfu(void)
 {
-	struct notify_packet *p = notify_packet_data;
+	struct secure_dfu_ind_packet *p = secure_dfu_ind_packet_data;
+	int err;
+
+	if (notify_length < 3) {
+		LOG_ERR("Indication too short: %u < 3", notify_length);
+		return -EINVAL;
+	}
+	if (p->resp_code != DFU_OP_RESPONSE_CODE) {
+		LOG_ERR("First byte not 0x%02X: 0x%02X", DFU_OP_RESPONSE_CODE, p->resp_code);
+		return -EINVAL;
+	}
+	switch (p->op_code) {
+	case DFU_OP_ENTER_BOOTLOADER:
+		if (p->rsp_code == DFU_RSP_SUCCESS) {
+			LOG_INF("Device switching to DFU mode!");
+			err = 0;
+		} else {
+			LOG_ERR("Error %d switching to DFU mode", p->rsp_code);
+			err = -EIO;
+		}
+		break;
+	case DFU_OP_SET_ADV_NAME:
+		if (p->rsp_code == DFU_RSP_SUCCESS) {
+			LOG_INF("DFU adv name changed successfully");
+			err = 0;
+		} else {
+			LOG_ERR("Error %d changing DFU adv name", p->rsp_code);
+			err = -EIO;
+		}
+		break;
+	default:
+		LOG_ERR("Unexpected op indicated: 0x%02X", p->op_code);
+		err = -EINVAL;
+	}
+	return err;
+}
+
+static int decode_dfu(void)
+{
+	struct dfu_notify_packet *p = dfu_notify_packet_data;
 	char buf[256];
 
 	if (notify_length < 3) {
@@ -260,9 +370,20 @@ static int decode_notification(void)
 			LOG_DBG("%s", log_strdup(buf));
 		}
 		return 0;
-	} else {
-		LOG_WRN("BLE operation failed: %d", p->result);
+	} else if (p->result == NRF_DFU_RES_CODE_EXT_ERROR) {
+		if (p->ext_err_code == NRF_DFU_EXT_ERROR_FW_VERSION_FAILURE) {
+			LOG_ERR("Cannot downgrade target firmware version!");
+		} else if (p->ext_err_code == NRF_DFU_EXT_ERROR_FW_VERSION_FAILURE) {
+			LOG_ERR("Incompatible target hardware version!");
+		} else if (p->ext_err_code == NRF_DFU_EXT_ERROR_FW_VERSION_FAILURE) {
+			LOG_ERR("Incompatible target SoftDevice version!");
+		} else {
+			LOG_ERR("Extended DFU error: 0x%02X", p->ext_err_code);
+		}
 		return -EFAULT;
+	} else {
+		LOG_WRN("DFU operation failed: %d", p->result);
+		return -EPROTO;
 	}
 }
 
@@ -279,26 +400,120 @@ int peripheral_dfu_init(void)
 	return nrf_cloud_fota_ble_set_handler(fota_ble_callback);
 }
 
+int peripheral_dfu_cleanup(void)
+{
+	ble_subscribe(ble_norm_addr, DFU_BUTTONLESS_UUID, 0);
+	ble_conn_mgr_remove_conn(ble_dfu_addr);
+	ble_conn_mgr_rem_desired(ble_dfu_addr, true);
+	k_sem_give(&peripheral_dfu_active);
+	return 0;
+}
+
 int peripheral_dfu_config(const char *addr, int size, const char *version,
 			   uint32_t crc, bool init_pkt, bool use_prtk)
 {
+	struct ble_device_conn *conn;
+	uint16_t handle;
 	int err;
+
+	err = ble_conn_mgr_get_conn_by_addr(addr, &conn);
+	if (err) {
+		LOG_ERR("Connection not found for addr %s", log_strdup(addr));
+		return err;
+	}
 
 	err = k_sem_take(&peripheral_dfu_active, K_NO_WAIT);
 	if (err) {
 		LOG_ERR("Peripheral DFU already active.");
-		return err;
+		conn->dfu_attempts = MAX_DFU_ATTEMPTS;
+		conn->dfu_pending = true;
+		return -EAGAIN;
 	}
-	LOG_DBG("peripheral_dfu_active LOCKED: %s",
-		log_strdup(k_thread_name_get(k_current_get())));
 
-	strncpy(ble_addr, addr, sizeof(ble_addr));
+	dfu_conn_ptr = NULL;
+
+	strncpy(ble_norm_addr, addr, sizeof(ble_norm_addr));
+
+	ble_register_notify_callback(notification_callback);
+
+	err = ble_conn_mgr_get_handle_by_uuid(&handle, DFU_BUTTONLESS_UUID, conn);
+	if (err) {
+		err = ble_conn_mgr_get_handle_by_uuid(&handle, DFU_CONTROL_POINT_UUID, conn);
+		if (err) {
+			LOG_ERR("Device does not support buttonless DFU, and is not in DFU mode");
+			k_sem_give(&peripheral_dfu_active);
+			return -EINVAL;
+		}
+		LOG_INF("Device already in DFU mode");
+		strncpy(ble_dfu_addr, addr, sizeof(ble_dfu_addr));
+		goto ready;
+	}
+
+	/* need to switch device to DFU mode first */
+	ble_conn_mgr_calc_other_addr(addr, ble_dfu_addr, DEVICE_ADDR_LEN, false);
+
+	err = ble_conn_mgr_get_conn_by_addr(ble_dfu_addr, &conn);
+	if (err) {
+		LOG_INF("Adding temporary connection to %s for DFU",
+			log_strdup(ble_dfu_addr));
+		err = ble_conn_mgr_add_conn(ble_dfu_addr);
+		if (err) {
+			goto failed;
+		}
+		LOG_INF("Connection added to ble_conn_mgr");
+	} else {
+		LOG_INF("Connection already exists in ble_conn_mgr");
+	}
+	err = ble_conn_mgr_add_desired(ble_dfu_addr, true);
+	if (err) {
+		goto failed;
+	}
+
+	LOG_INF("Enabling indication");
+	err = ble_subscribe(ble_norm_addr, DFU_BUTTONLESS_UUID,
+			    BT_GATT_CCC_INDICATE);
+	if (err) {
+		goto failed;
+	}
+
+	LOG_INF("Switching to DFU mode");
+	err = send_switch_to_dfu(ble_norm_addr);
+	if (err) {
+		goto failed;
+	}
+	int max_loops = 300;
+
+	err = ble_conn_mgr_get_conn_by_addr(ble_dfu_addr, &conn);
+	if (err) {
+		goto failed;
+	}
+
+	LOG_INF("Waiting for device discovery...");
+	while (!conn->discovered && !conn->encode_discovered) {
+		k_sleep(K_MSEC(100));
+		if (!max_loops--) {
+			LOG_ERR("Timeout: conn:%u, ding:%u, disc:%u, enc:%u, np:%u",
+				conn->connected, conn->discovering,
+				conn->discovered, conn->encode_discovered,
+				conn->num_pairs);
+			err = -ETIMEDOUT;
+			goto failed;
+		}
+	}
+	LOG_INF("Continuing BLE DFU");
+
+ready:
 	strncpy(app_version, version, sizeof(app_version));
 	image_size = size;
 	original_crc = crc;
 	init_packet = init_pkt;
 	use_printk = use_prtk;
+	dfu_conn_ptr = conn;
 	return 0;
+
+failed:
+	LOG_ERR("Error configuring update:%d", err);
+	return err;
 }
 
 int peripheral_dfu_start(const char *host, const char *file, int sec_tag,
@@ -314,9 +529,7 @@ int peripheral_dfu_start(const char *host, const char *file, int sec_tag,
 	};
 
 	if (host == NULL || file == NULL) {
-		k_sem_give(&peripheral_dfu_active);
-		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-			log_strdup(k_thread_name_get(k_current_get())));
+		peripheral_dfu_cleanup();
 		return -EINVAL;
 	}
 
@@ -326,18 +539,14 @@ int peripheral_dfu_start(const char *host, const char *file, int sec_tag,
 
 	err = download_client_connect(&dlc, host, &config);
 	if (err != 0) {
-		k_sem_give(&peripheral_dfu_active);
-		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-			log_strdup(k_thread_name_get(k_current_get())));
+		peripheral_dfu_cleanup();
 		return err;
 	}
 
 	err = download_client_start(&dlc, file, 0);
 	if (err != 0) {
 		download_client_disconnect(&dlc);
-		k_sem_give(&peripheral_dfu_active);
-		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-			log_strdup(k_thread_name_get(k_current_get())));
+		peripheral_dfu_cleanup();
 		return err;
 	}
 
@@ -443,6 +652,7 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 	int sec_tag = CONFIG_NRF_CLOUD_SEC_TAG;
 	char *apn = NULL;
 	size_t frag = CONFIG_NRF_CLOUD_FOTA_DOWNLOAD_FRAGMENT_SIZE;
+	int err;
 
 	bt_addr_to_str(&ble_job->ble_id, addr, sizeof(addr));
 
@@ -454,9 +664,14 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 
 	init_pkt = strstr(ble_job->info.path, "dat") != NULL;
 
-	if (peripheral_dfu_config(addr, ble_job->info.file_size, ver, crc,
-			      init_pkt, false)) {
+	err = peripheral_dfu_config(addr, ble_job->info.file_size, ver, crc,
+				    init_pkt, false);
+	if (err == -EAGAIN) {
+		/* already busy; ask for the job when done with current */
+		return;
+	} else if (err) {
 		/* could not configure, so don't start job */
+		cancel_dfu(NRF_CLOUD_FOTA_ERROR_APPLY_FAIL);
 		return;
 	}
 
@@ -477,7 +692,7 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 		}
 		fota_files[i].path = k_calloc(1 + end - path, 1);
 		if (!fota_files[i].path) {
-			LOG_ERR("out of memory");
+			LOG_ERR("Out of memory");
 			return;
 		}
 		memcpy(fota_files[i].path, path, end - path);
@@ -514,18 +729,18 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 	fota_ble_job.info.file_size = ble_job->info.file_size;
 	fota_ble_job.error = NRF_CLOUD_FOTA_ERROR_NONE;
 
-	LOG_INF("starting BLE DFU to addr:%s, from host:%s, size:%d, "
+	LOG_INF("Starting BLE DFU to addr:%s, from host:%s, size:%d, "
 		"init:%d, ver:%s, crc:%u, sec_tag:%d, apn:%s, frag_size:%zd",
 		log_strdup(addr), log_strdup(fota_ble_job.info.host),
 		fota_ble_job.info.file_size,
 		init_packet, log_strdup(ver), crc, sec_tag,
 		apn ? log_strdup(apn) : "<n/a>", frag);
-	LOG_INF("num files:%d", num_fota_files);
+	LOG_INF("Num files:%d", num_fota_files);
 	for (i = 0; i < MAX_FOTA_FILES; i++) {
 		if (!fota_files[i].path) {
 			break;
 		}
-		LOG_INF("file:%d path:%s", i + 1, log_strdup(fota_files[i].path));
+		LOG_INF("File:%d path:%s", i + 1, log_strdup(fota_files[i].path));
 	}
 
 	(void)start_ble_job(&fota_ble_job);
@@ -534,13 +749,15 @@ static void fota_ble_callback(const struct nrf_cloud_fota_ble_job *
 static void fota_job_next(struct k_work *work)
 {
 	if (!start_next_job()) {
-		ble_conn_mgr_force_dfu_rediscover(ble_addr);
+		ble_conn_mgr_force_dfu_rediscover(ble_norm_addr);
+		if (strcmp(ble_norm_addr, ble_dfu_addr) != 0) {
+			ble_conn_mgr_force_dfu_rediscover(ble_dfu_addr);
+		}
 		ble_register_notify_callback(NULL);
 		LOGPKINF("DFU complete");
 		free_job();
-		k_sem_give(&peripheral_dfu_active);
-		LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-			log_strdup(k_thread_name_get(k_current_get())));
+		peripheral_dfu_cleanup();
+		ble_conn_mgr_check_pending();
 	}
 }
 
@@ -555,7 +772,7 @@ static bool start_next_job(void)
 	fota_ble_job.info.path = fota_files[active_num].path;
 	fota_ble_job.error = NRF_CLOUD_FOTA_ERROR_NONE;
 
-	if (!ble_conn_mgr_is_addr_connected(ble_addr)) {
+	if (!ble_conn_mgr_is_addr_connected(ble_dfu_addr)) {
 		/* TODO: add ability to queue? */
 		LOG_ERR("Device not connected; cancelling remainder of job");
 		cancel_dfu(NRF_CLOUD_FOTA_ERROR_APPLY_FAIL);
@@ -565,9 +782,9 @@ static bool start_next_job(void)
 	/* update globals */
 	init_packet = strstr(fota_ble_job.info.path, ".dat") != NULL;
 
-	LOG_INF("starting second BLE DFU to addr:%s, from host:%s, "
+	LOG_INF("Starting second BLE DFU to addr:%s, from host:%s, "
 		"path:%s, size:%d, init:%d",
-		log_strdup(ble_addr), log_strdup(fota_ble_job.info.host),
+		log_strdup(ble_dfu_addr), log_strdup(fota_ble_job.info.host),
 		log_strdup(fota_ble_job.info.path), fota_ble_job.info.file_size,
 		init_packet);
 
@@ -605,9 +822,9 @@ static void cancel_dfu(enum nrf_cloud_fota_error error)
 		enum nrf_cloud_fota_status status;
 		int err;
 
-		if (ble_conn_mgr_is_addr_connected(ble_addr)) {
+		if (ble_conn_mgr_is_addr_connected(ble_dfu_addr)) {
 			LOG_INF("Sending DFU Abort...");
-			send_abort(ble_addr);
+			send_abort(ble_dfu_addr);
 		}
 
 		/* TODO: adjust error according to actual failure */
@@ -621,9 +838,8 @@ static void cancel_dfu(enum nrf_cloud_fota_error error)
 		free_job();
 		LOGPKINF("Update cancelled.");
 	}
-	k_sem_give(&peripheral_dfu_active);
-	LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-		log_strdup(k_thread_name_get(k_current_get())));
+	peripheral_dfu_cleanup();
+	ble_conn_mgr_check_pending();
 }
 
 static uint8_t peripheral_dfu(const char *buf, size_t len)
@@ -635,7 +851,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 	int err = 0;
 
 	if (first_fragment) {
-		LOG_INF("len:%zd, first:%u, size:%d, init:%u", len,
+		LOG_INF("Len:%zd, first:%u, size:%d, init:%u", len,
 		       first_fragment, image_size, init_packet);
 	}
 	download_size = image_size;
@@ -664,7 +880,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 
 	if (first_fragment) {
 		first_fragment = false;
-		LOGPKINF("BLE DFU starting to %s...", STRDUP(ble_addr));
+		LOGPKINF("BLE DFU starting to %s...", STRDUP(ble_dfu_addr));
 
 		if (fota_ble_job.info.id) {
 			fota_ble_job.dl_progress = (100 * total_completed_size) /
@@ -674,9 +890,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 			if (err) {
 				LOG_ERR("Error updating job: %d", err);
 				free_job();
-				k_sem_give(&peripheral_dfu_active);
-				LOG_DBG("peripheral_dfu_active UNLOCKED: %s",
-				log_strdup(k_thread_name_get(k_current_get())));
+				peripheral_dfu_cleanup();
 				return err;
 			}
 		}
@@ -686,7 +900,6 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 		prev_crc = 0;
 		page_remaining = 0;
 		finish_page = false;
-		ble_register_notify_callback(notification_callback);
 
 		if (init_packet) {
 			verbose = true;
@@ -694,60 +907,55 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 
 			LOG_INF("Loading Init Packet and "
 			       "turning on notifications...");
-			err = ble_subscribe(ble_addr, DFU_CONTROL_POINT_UUID,
+			err = ble_subscribe(ble_dfu_addr, DFU_CONTROL_POINT_UUID,
 					    BT_GATT_CCC_NOTIFY);
 			if (err) {
 				goto cleanup;
 			}
 
 			LOG_INF("Setting DFU PRN to 0...");
-			err = send_prn(ble_addr, 0);
+			err = send_prn(ble_dfu_addr, 0);
 			if (err) {
 				goto cleanup;
 			}
 
 			LOG_INF("Querying hardware version...");
-			(void)send_hw_version_get(ble_addr);
+			(void)send_hw_version_get(ble_dfu_addr);
 
 			LOG_INF("Querying firmware version (APP)...");
-			(void)send_fw_version_get(ble_addr,
+			(void)send_fw_version_get(ble_dfu_addr,
 					     NRF_DFU_FIRMWARE_TYPE_APPLICATION);
 
 			LOG_INF("Sending DFU select command...");
-			err = send_select_command(ble_addr);
+			err = send_select_command(ble_dfu_addr);
 			if (err) {
 				goto cleanup;
 			}
 			/* TODO: check offset and CRC; do no transfer
 			 * and skip execute if offset != init length or
 			 * CRC mismatch -- however, to do this, we need the
-			 * cloud to send us the expected CRC for the file,
-			 * which we cannot precalculate here unless we download
-			 * and store the whole file locally first
+			 * cloud to send us the expected CRC for the file
 			 */
-			if (notify_packet_data->select.offset != image_size) {
-				LOG_INF("image size mismatched, so continue; "
+			if (dfu_notify_packet_data->select.offset != image_size) {
+				LOG_INF("Image size mismatched, so continue; "
 				       "offset:%u, size:%u",
-				       notify_packet_data->select.offset,
+				       dfu_notify_packet_data->select.offset,
 				       image_size);
 			} else {
-				LOG_INF("image size matches device!");
-				if (notify_packet_data->select.crc != original_crc) {
-					LOG_INF("crc mismatched, so continue; "
+				LOG_INF("Image size matches device!");
+				if (dfu_notify_packet_data->select.crc != original_crc) {
+					LOG_INF("CRC mismatched, so continue; "
 					       "dev crc:0x%08X, this crc:"
 					       "0x%08X",
-					       notify_packet_data->select.crc,
+					       dfu_notify_packet_data->select.crc,
 					       original_crc);
 				} else {
 					LOG_INF("CRC matches device!");
-					/* TODO: we could skip transferring the
-					 * init packet and just do execute
-					 */
 				}
 			}
 
 			LOG_INF("Sending DFU create command...");
-			err = send_create_command(ble_addr, image_size);
+			err = send_create_command(ble_dfu_addr, image_size);
 			/* This will need to be the size of the entire init
 			 * file. If http chunks it smaller this won't work
 			 */
@@ -760,28 +968,28 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 
 			LOG_INF("Loading Firmware");
 			LOG_INF("Setting DFU PRN to 0...");
-			err = send_prn(ble_addr, 0);
+			err = send_prn(ble_dfu_addr, 0);
 			if (err) {
 				goto cleanup;
 			}
 
 			LOG_INF("Sending DFU select data...");
-			err = send_select_data(ble_addr);
+			err = send_select_data(ble_dfu_addr);
 			if (err) {
 				goto cleanup;
 			}
-			if (notify_packet_data->select.offset != image_size) {
-				LOG_INF("image size mismatched, so continue; "
+			if (dfu_notify_packet_data->select.offset != image_size) {
+				LOG_INF("Image size mismatched, so continue; "
 				       "offset:%u, size:%u",
-				       notify_packet_data->select.offset,
+				       dfu_notify_packet_data->select.offset,
 				       image_size);
 			} else {
-				LOG_INF("image size matches device!");
-				if (notify_packet_data->select.crc != original_crc) {
-					LOG_INF("crc mismatched, so continue; "
+				LOG_INF("Image size matches device!");
+				if (dfu_notify_packet_data->select.crc != original_crc) {
+					LOG_INF("CRC mismatched, so continue; "
 					       "dev crc:0x%08X, this crc:"
 					       "0x%08X",
-					       notify_packet_data->select.crc,
+					       dfu_notify_packet_data->select.crc,
 					       original_crc);
 				} else {
 					LOG_INF("CRC matches device!");
@@ -801,10 +1009,10 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 
 			page_remaining = MIN(max_size, file_remaining);
 
-			LOG_DBG("page remaining %u, max_size %u, len %u",
+			LOG_DBG("Page remaining %u, max_size %u, len %u",
 			       page_remaining, max_size, len);
 			if (!init_packet) {
-				err = send_create_data(ble_addr, page_remaining);
+				err = send_create_data(ble_dfu_addr, page_remaining);
 				if (err) {
 					goto cleanup;
 				}
@@ -815,7 +1023,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 				finish_page = true;
 			} else {
 				if (!completed_size) {
-					LOG_DBG("no need to finish first page "
+					LOG_DBG("No need to finish first page "
 					       "next time");
 				}
 			}
@@ -824,7 +1032,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 		size_t page_len = MIN(len, page_remaining);
 
 		LOG_DBG("Sending DFU data len %u...", page_len);
-		err = send_data(ble_addr, buf, page_len);
+		err = send_data(ble_dfu_addr, buf, page_len);
 		if (err) {
 			goto cleanup;
 		}
@@ -841,9 +1049,9 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 		if ((page_remaining == 0) ||
 		    (completed_size == download_size)) {
 			finish_page = false;
-			LOG_DBG("page is complete");
+			LOG_DBG("Page is complete");
 		} else {
-			LOG_DBG("page remaining: %u bytes", page_remaining);
+			LOG_DBG("Page remaining: %u bytes", page_remaining);
 		}
 
 		if (!finish_page) {
@@ -857,15 +1065,15 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 				k_sleep(K_MSEC(100));
 
 				LOG_DBG("Sending DFU request CRC %d...", i);
-				err = send_request_crc(ble_addr);
+				err = send_request_crc(ble_dfu_addr);
 				if (err) {
 					break;
 				}
-				if (notify_packet_data->crc.offset !=
+				if (dfu_notify_packet_data->crc.offset !=
 				    completed_size) {
 					err = -EIO;
 				}
-				else if (notify_packet_data->crc.crc !=
+				else if (dfu_notify_packet_data->crc.crc !=
 					 prev_crc) {
 					err = -EBADMSG;
 				} else {
@@ -877,13 +1085,13 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 			if (err == -EIO) {
 				LOG_ERR("Transfer offset wrong; received: %u,"
 					" expected: %u",
-					notify_packet_data->crc.offset,
+					dfu_notify_packet_data->crc.offset,
 					completed_size);
 			}
 			if (err == -EBADMSG) {
 				LOG_ERR("CRC wrong; received: 0x%08X, "
 					"expected: 0x%08X",
-					notify_packet_data->crc.crc,
+					dfu_notify_packet_data->crc.crc,
 					prev_crc);
 			}
 			if (err) {
@@ -891,7 +1099,7 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 			}
 
 			LOG_DBG("Sending DFU execute...");
-			err = send_execute(ble_addr);
+			err = send_execute(ble_dfu_addr);
 			if (err) {
 				goto cleanup;
 			}
@@ -922,6 +1130,9 @@ static uint8_t peripheral_dfu(const char *buf, size_t len)
 			} else {
 				status = NRF_CLOUD_FOTA_SUCCEEDED;
 				fota_ble_job.dl_progress = 100;
+				if (dfu_conn_ptr) {
+					dfu_conn_ptr->dfu_pending = false;
+				}
 			}
 			err = nrf_cloud_fota_ble_job_update(&fota_ble_job,
 							    status);
@@ -962,12 +1173,19 @@ static int send_data(char *ble_addr, const char *buf, size_t len)
 }
 
 /* name should be a string constant so log_strdup not needed */
-static int do_cmd(char *ble_addr, char *uuid, uint8_t *buf, uint16_t len,
-		  char *name)
+static int do_cmd(char *ble_addr, bool normal_mode, uint8_t *buf, uint16_t len,
+		  char *name, bool verbose)
 {
 	int err;
+	const char *uuid;
 
+	if (normal_mode) {
+		uuid = DFU_BUTTONLESS_UUID;
+	} else {
+		uuid = DFU_CONTROL_POINT_UUID;
+	}
 	notify_received = false;
+
 	err = gatt_write(ble_addr, uuid, buf, len, on_sent);
 	if (err) {
 		LOG_ERR("Error writing %s: %d", name, err);
@@ -975,17 +1193,27 @@ static int do_cmd(char *ble_addr, char *uuid, uint8_t *buf, uint16_t len,
 	}
 	err = wait_for_notification();
 	if (err) {
-		LOG_ERR("timeout waiting for notification from %s: %d",
+		LOG_ERR("Timeout waiting for notification from %s: %d",
 			name, err);
 		return err;
 	}
-	err = decode_notification();
-	if (err) {
-		LOG_ERR("notification decode error from %s: %d",
+	err = normal_mode ? decode_secure_dfu() : decode_dfu();
+	if (err && verbose) {
+		LOG_ERR("Notification decode error from %s: %d",
 			name, err);
 	}
 	return err;
 }
+
+static int send_switch_to_dfu(char *ble_addr)
+{
+	char smol_buf[1];
+	
+	smol_buf[0] = DFU_OP_ENTER_BOOTLOADER;
+	
+	return do_cmd(ble_addr, true, smol_buf, sizeof(smol_buf), "DFU", true);
+}
+
 
 /* set number of writes between CRC reports; 0 disables */
 static int send_prn(char *ble_addr, uint16_t receipt_rate)
@@ -996,8 +1224,8 @@ static int send_prn(char *ble_addr, uint16_t receipt_rate)
 	smol_buf[1] = receipt_rate & 0xff;
 	smol_buf[2] = (receipt_rate >> 8) & 0xff;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "PRN");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "PRN", true);
 }
 
 static int send_select_command(char *ble_addr)
@@ -1007,8 +1235,8 @@ static int send_select_command(char *ble_addr)
 	smol_buf[0] = NRF_DFU_OP_OBJECT_SELECT;
 	smol_buf[1] = 0x01;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Select Cmd");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Select Cmd", true);
 }
 
 static int send_select_data(char *ble_addr)
@@ -1018,8 +1246,8 @@ static int send_select_data(char *ble_addr)
 	smol_buf[0] = NRF_DFU_OP_OBJECT_SELECT;
 	smol_buf[1] = 0x02;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Select Data");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Select Data", true);
 }
 
 static int send_create_command(char *ble_addr, uint32_t size)
@@ -1033,8 +1261,8 @@ static int send_create_command(char *ble_addr, uint32_t size)
 	smol_buf[4] = (size >> 16) & 0xFF;
 	smol_buf[5] = (size >> 24) & 0xFF;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Create Cmd");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Create Cmd", true);
 }
 
 static int send_create_data(char *ble_addr, uint32_t size)
@@ -1050,8 +1278,8 @@ static int send_create_data(char *ble_addr, uint32_t size)
 	smol_buf[4] = (size >> 16) & 0xFF;
 	smol_buf[5] = (size >> 24) & 0xFF;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Create Data");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Create Data", true);
 }
 
 static void on_sent(struct bt_conn *conn, uint8_t err,
@@ -1059,7 +1287,6 @@ static void on_sent(struct bt_conn *conn, uint8_t err,
 {
 	const void *data;
 	uint16_t length;
-	char str[32];
 
 	/* TODO: Make a copy of volatile data that is passed to the
 	 * callback.  Check err value at least in the wait function.
@@ -1067,8 +1294,8 @@ static void on_sent(struct bt_conn *conn, uint8_t err,
 	data = params->data;
 	length = params->length;
 
-	sprintf(str, "resp err:%u, from write:", err);
-	LOG_HEXDUMP_DBG(data, length, log_strdup(str));
+	LOG_DBG("Resp err:0x%02X, from write:", err);
+	LOG_HEXDUMP_DBG(data, length, "sent");
 }
 
 static int send_request_crc(char *ble_addr)
@@ -1078,8 +1305,8 @@ static int send_request_crc(char *ble_addr)
 	/* Requesting 32 bit offset followed by 32 bit CRC */
 	smol_buf[0] = NRF_DFU_OP_CRC_GET;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "CRC Request");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "CRC Request", true);
 }
 
 static int send_execute(char *ble_addr)
@@ -1090,33 +1317,33 @@ static int send_execute(char *ble_addr)
 
 	smol_buf[0] = NRF_DFU_OP_OBJECT_EXECUTE;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Execute");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Execute", true);
 }
 
 static int send_hw_version_get(char *ble_addr)
 {
 	char smol_buf[1];
 
-	LOG_INF("Sending HW Version Get; errors are normal");
+	LOG_INF("Sending HW Version Get");
 
 	smol_buf[0] = NRF_DFU_OP_HARDWARE_VERSION;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Get HW Ver");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Get HW Ver", false);
 }
 
 static int send_fw_version_get(char *ble_addr, uint8_t fw_type)
 {
 	char smol_buf[2];
 
-	LOG_INF("Sending FW Version Get; errors are normal");
+	LOG_INF("Sending FW Version Get");
 
 	smol_buf[0] = NRF_DFU_OP_FIRMWARE_VERSION;
 	smol_buf[1] = fw_type;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Get FW Ver");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Get FW Ver", false);
 }
 
 static int send_abort(char *ble_addr)
@@ -1125,8 +1352,8 @@ static int send_abort(char *ble_addr)
 
 	smol_buf[0] = 0x0C;
 
-	return do_cmd(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
-		      sizeof(smol_buf), "Abort");
+	return do_cmd(ble_addr, false, smol_buf,
+		      sizeof(smol_buf), "Abort", true);
 }
 
 #if 0
@@ -1166,7 +1393,7 @@ int send_initialize_dfu_parameters(char *ble_addr)
 	int err;
 
 	smol_buf[0] = 0x02;
-	err = gatt_write(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
+	err = gatt_write(ble_addr, false, smol_buf,
 			 sizeof(smol_buf), on_sent);
 	if (err) {
 		LOG_ERR("Error sending initialize dfu: %d", err);
@@ -1237,7 +1464,7 @@ int send_start_dfu_packet(char *ble_addr)
 	int err;
 
 	smol_buf[0] = 0x01;
-	err = gatt_write(ble_addr, DFU_CONTROL_POINT_UUID, smol_buf,
+	err = gatt_write(ble_addr, false, smol_buf,
 			 sizeof(smol_buf), on_sent);
 	if (err) {
 		LOG_ERR("Error sending start dfu: %d", err);

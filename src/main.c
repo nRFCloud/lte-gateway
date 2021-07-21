@@ -746,7 +746,7 @@ struct modem_param_info * query_modem_info(void)
 			if (rm) {
 				ts.tv_sec = mktime(&tm);
 				ts.tv_nsec = 0;
-				LOG_INF("setting time to %lld", ts.tv_sec);
+				LOG_INF("Setting time to %lld", ts.tv_sec);
 
 				/* tzset();
 				 * char *tz = getenv("TZ");
@@ -754,9 +754,9 @@ struct modem_param_info * query_modem_info(void)
 				 */
 
 				if (!clock_settime(CLOCK_REALTIME, &ts)) {
-					LOG_INF("time set");
+					LOG_INF("Time set");
 				} else {
-					LOG_ERR("error %d on clock_settime()",
+					LOG_ERR("Error %d on clock_settime()",
 						errno);
 				}
 			} else {
@@ -996,7 +996,7 @@ void handle_nrf_modem_lib_init_ret(void)
 		/* All non-zero return codes other than DFU result codes are
 		 * considered irrecoverable and a reboot is needed.
 		 */
-		LOG_ERR("modem library initialization failed, error: %d", ret);
+		LOG_ERR("Modem library initialization failed, error: %d", ret);
 		error_handler(ERROR_MODEM_IRRECOVERABLE, ret);
 
 		CODE_UNREACHABLE;

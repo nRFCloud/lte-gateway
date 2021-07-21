@@ -86,7 +86,7 @@ void cloud_data_process(int unused1, int unused2, int unused3)
 			}
 #if defined(QUEUE_CHAR_READS)
 			else if (cloud_data->read) {
-				LOG_DBG("dequeued gatt_read request %s, %s, %u",
+				LOG_DBG("Dequeued gatt_read request %s, %s, %u",
 					log_strdup(cloud_data->addr),
 					log_strdup(cloud_data->uuid),
 					cloud_data->ccc);
@@ -204,7 +204,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		chrc_uuid = json_object_decode(operation_obj,
 					       "characteristicUUID");
 
-		LOG_INF("got device_characteristic_value_read: %s",
+		LOG_INF("Got device_characteristic_value_read: %s",
 			log_strdup(ble_address->valuestring));
 		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
 #if defined(QUEUE_CHAR_READS)
@@ -232,7 +232,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
-			LOG_INF("queued device_characteristic_value_read %s, %s, 0",
+			LOG_INF("Queued device_characteristic_value_read %s, %s, 0",
 				log_strdup(cloud_data.addr),
 				log_strdup(cloud_data.uuid));
 #else
@@ -255,7 +255,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		chrc_uuid = json_object_decode(operation_obj,
 					       "characteristicUUID");
 
-		LOG_INF("got device_descriptor_value_read: %s",
+		LOG_INF("Got device_descriptor_value_read: %s",
 			log_strdup(ble_address->valuestring));
 		if ((ble_address != NULL) && (chrc_uuid != NULL)) {
 #if defined(QUEUE_CHAR_READS)
@@ -283,7 +283,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 
 			memcpy(mem_ptr, &cloud_data, size);
 			k_fifo_put(&cloud_data_fifo, mem_ptr);
-			LOG_INF("queued device_descriptor_value_read %s, %s",
+			LOG_INF("Queued device_descriptor_value_read %s, %s",
 				log_strdup(cloud_data.addr),
 				log_strdup(cloud_data.uuid));
 #else
@@ -407,7 +407,7 @@ uint8_t gateway_handler(const struct nct_gw_data *gw_data)
 		ble_address = json_object_decode(operation_obj,
 						 "deviceAddress");
 		if (ble_address != NULL) {
-			LOG_INF("cloud requested device_discover");
+			LOG_INF("Cloud requested device_discover");
 			ble_conn_mgr_rediscover(ble_address->valuestring);
 		}
 	}
@@ -486,7 +486,7 @@ int gw_client_id_get(char **id, size_t *id_len)
 			*id_len = strlen(gateway_id);
 
 		} else {
-			LOG_ERR("no GWID set in PSK!");
+			LOG_ERR("No GWID set in PSK!");
 			ret = -EINVAL;
 		}
 	}

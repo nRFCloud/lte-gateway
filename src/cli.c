@@ -531,16 +531,24 @@ static int ble_disconn_mac(const struct shell *shell, char *addr)
 {
 	int err;
 
+	shell_print(shell, "  Disconnecting device...");
+	if (!ble_conn_mgr_is_addr_connected(addr)) {
+		err = ble_add_to_allowlist(addr, false);
+		if (err) {
+			shell_error(shell, "  Failed to remove from allowlist: %d", err);
+		}
+	}
+	err = disconnect_device_by_addr(addr);
+	if (err) {
+		shell_error(shell, "  Error disconnecting device: %d", err);
+	}
 	shell_print(shell, "  Removing connection to %s...", addr);
 	err = ble_conn_mgr_remove_conn(addr);
 	if (!err) {
 		shell_print(shell, "  Removing from desired list...");
 		err = ble_conn_mgr_rem_desired(addr, true);
-		if (!err) {
-			if (ble_conn_mgr_is_addr_connected(addr)) {
-				shell_print(shell, "  Disconnecting device...");
-				err = disconnect_device_by_addr(addr);
-			}
+		if (err) {
+			shell_error(shell, "  Failed to remove from desired list: %d", err);
 		}
 	}
 	if (err) {
@@ -830,6 +838,17 @@ static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 	print_fw_info(shell);
 	heap_stats(true);
+
+	extern struct k_mem_slab log_strdup_pool;
+	uint32_t max_used;
+	uint32_t num_used;
+	uint32_t num_free;
+
+	max_used = k_mem_slab_max_used_get(&log_strdup_pool);
+	num_used = k_mem_slab_num_used_get(&log_strdup_pool);
+	num_free = k_mem_slab_num_free_get(&log_strdup_pool);
+	shell_print(shell, "log_strdup pool: Free:%u, Used:%u, Max Used:%u",
+		    num_free, num_used, max_used);
 	return 0;
 }
 
@@ -868,6 +887,7 @@ static int cmd_info_scan(const struct shell *shell, size_t argc,
 	return 0;
 }
 
+/* void print_conns(void); */
 static int cmd_info_conn(const struct shell *shell, size_t argc,
 				char **argv)
 {
@@ -886,6 +906,7 @@ static int cmd_info_conn(const struct shell *shell, size_t argc,
 		}
 	}
 	print_conn_info(shell, path, notify);
+/*	print_conns(); */
 	return 0;
 }
 
@@ -1335,6 +1356,7 @@ static int cmd_ble_fota(const struct shell *shell, size_t argc, char **argv)
 
 	err = peripheral_dfu_config(addr, size, ver, crc, init_packet, true);
 	if (err) {
+		peripheral_dfu_cleanup();
 		shell_error(shell, "Error %d starting peripheral DFU", err);
 	} else {
 		err = peripheral_dfu_start(host, path, sec_tag, apn, frag);
