@@ -17,7 +17,7 @@
 
 #include "nrf_cloud_codec.h"
 #include "gateway.h"
-#include "nrf_cloud_transport.h"
+#include <net/nrf_cloud.h>
 #include "nrf_cloud_mem.h"
 
 #include "ui.h"
@@ -137,7 +137,7 @@ static bool compare(const char *s1, const char *s2)
 	return !strncmp(s1, s2, strlen(s2));
 }
 
-uint8_t gateway_handler(const struct nct_gw_data *gw_data)
+int gateway_handler(const struct nrf_cloud_gw_data *gw_data)
 {
 	int ret = 0;
 	cJSON *root_obj;
@@ -419,7 +419,7 @@ exit_handler:
 
 void init_gateway(void)
 {
-	nct_register_gateway_handler(gateway_handler);
+	nrf_cloud_register_gateway_handler(gateway_handler);
 	ble_codec_init();
 }
 

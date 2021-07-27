@@ -93,13 +93,39 @@ void print_fw_info(const struct shell *shell)
 		shell_print(shell, "Boot:   \t0x%08x", info->boot_address);
 		shell_print(shell, "Valid:  \t%u", info->valid);
 
-		struct cloud_backend *backend = cloud_get_binding("NRF_CLOUD");
-
-		if (backend) {
-			cloud_get_id(backend, id, sizeof(id));
+		if (nrf_cloud_client_id_get(id, sizeof(id)) == 0) {
+			shell_print(shell, "Dev ID: \t%s", id);
+		} else {
+			shell_print(shell, "Dev ID: unknown");
 		}
-		shell_print(shell, "Dev ID: \t%s", id);
 	}
+}
+
+void print_heap(bool detailed)
+{
+	extern struct k_heap _system_heap;
+	struct sys_heap *s_heap = &_system_heap.heap;
+	extern struct k_heap library_heap;
+	struct sys_heap *ls_heap = &library_heap.heap;
+
+	printk("System Heap:\n");
+	sys_heap_print_info(s_heap, detailed);
+	printk("Library Heap:\n");
+	sys_heap_print_info(ls_heap, detailed);
+}
+
+void print_log_strdup(const struct shell *shell)
+{
+	extern struct k_mem_slab log_strdup_pool;
+	uint32_t max_used;
+	uint32_t num_used;
+	uint32_t num_free;
+
+	max_used = k_mem_slab_max_used_get(&log_strdup_pool);
+	num_used = k_mem_slab_num_used_get(&log_strdup_pool);
+	num_free = k_mem_slab_num_free_get(&log_strdup_pool);
+	shell_print(shell, "log_strdup: \tFree:%u, Used:%u, Max Used:%u",
+		    num_free, num_used, max_used);
 }
 
 void print_modem_info(const struct shell *shell)
@@ -206,6 +232,7 @@ void print_modem_info(const struct shell *shell)
 		shell_print(shell, "Cell ID: \t%ld",
 			    (long)net->cellid_dec);
 
+#if defined(CONFIG_MODEM_INFO_ADD_DATE_TIME) || defined(CONFIG_DATE_TIME_MODEM)
 		char *str = net->date_time.value_string;
 		struct timespec now;
 		struct tm *tm;
@@ -226,6 +253,13 @@ void print_modem_info(const struct shell *shell)
 			return;
 		}
 		shell_print(shell, "Time now: \t%s", asctime(tm));
+#else
+		char time_str[30] = {0};
+
+		if (get_time_str(time_str, sizeof(time_str))) {
+			shell_print(shell, "Current UTC: \t%s", log_strdup(time_str));
+		}
+#endif
 	}
 #endif
 }
@@ -271,8 +305,8 @@ static void print_cloud_info(const struct shell *shell)
 	char stage[8];
 	char tenant_id[40];
 
-	nct_gw_get_stage(stage, sizeof(stage));
-	nct_gw_get_tenant_id(tenant_id, sizeof(tenant_id));
+	nct_stage_get(stage, sizeof(stage));
+	nrf_cloud_tenant_id_get(tenant_id, sizeof(tenant_id));
 	print_connection_status(shell);
 
 	shell_print(shell, "nrfcloud stage: \t%s", stage);
@@ -463,7 +497,7 @@ static int ble_conn_save(const struct shell *shell)
 	int num;
 	struct desired_conn *desired = get_desired_array(&num);
 
-	return nrf_cloud_update_gateway_state(desired, num);
+	return set_shadow_desired_conn(desired, num);
 }
 
 static int ble_conn_mac(const struct shell *shell, char *addr)
@@ -834,21 +868,17 @@ SHELL_DYNAMIC_CMD_CREATE(dynamic_param, get_dynamic_param);
 
 static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 {
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
+	bool detailed = false;
+
+	if (argc > 1) {
+		if (strcmp(argv[1], "verbose") == 0) {
+			detailed = true;
+		}
+	}
+
 	print_fw_info(shell);
-	heap_stats(true);
-
-	extern struct k_mem_slab log_strdup_pool;
-	uint32_t max_used;
-	uint32_t num_used;
-	uint32_t num_free;
-
-	max_used = k_mem_slab_max_used_get(&log_strdup_pool);
-	num_used = k_mem_slab_num_used_get(&log_strdup_pool);
-	num_free = k_mem_slab_num_free_get(&log_strdup_pool);
-	shell_print(shell, "log_strdup pool: Free:%u, Used:%u, Max Used:%u",
-		    num_free, num_used, max_used);
+	print_heap(detailed);
+	print_log_strdup(shell);
 	return 0;
 }
 
@@ -887,7 +917,6 @@ static int cmd_info_scan(const struct shell *shell, size_t argc,
 	return 0;
 }
 
-/* void print_conns(void); */
 static int cmd_info_conn(const struct shell *shell, size_t argc,
 				char **argv)
 {
@@ -906,7 +935,6 @@ static int cmd_info_conn(const struct shell *shell, size_t argc,
 		}
 	}
 	print_conn_info(shell, path, notify);
-/*	print_conns(); */
 	return 0;
 }
 
@@ -1393,18 +1421,18 @@ static int cmd_session(const struct shell *shell, size_t argc, char **argv)
 {
 	if (argc < 2) {
 		shell_print(shell, "Persistent sessions = %d",
-			    get_session_state());
+			    nct_get_session_state());
 	} else {
 		int flag = atoi(argv[1]);
 
-		if ((get_session_state() == 0) && (flag == 1)) {
+		if ((nct_get_session_state() == 0) && (flag == 1)) {
 			shell_warn(shell, "Setting persistent sessions true "
 					  "when it is not, may result "
 					  "in data loss; use at your own "
 					  "risk.");
 		}
 		shell_print(shell, "Setting persistent sessions = %d", flag);
-		save_session_state(flag);
+		nct_save_session_state(flag);
 	}
 	return 0;
 }
@@ -1514,7 +1542,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_info,
 	SHELL_CMD(conn, NULL, "[path] [notify] Connected Bluetooth devices "
 			      "information.",
 	          cmd_info_conn),
-	SHELL_CMD(gateway, NULL, "Gateway information.",
+	SHELL_CMD(gateway, NULL, "<verbose> Gateway information.",
 		  cmd_info_gateway),
 	SHELL_COND_CMD(CONFIG_GATEWAY_DBG_CMDS,
 		       irq, NULL, "Dump IRQ table.", cmd_info_irq),

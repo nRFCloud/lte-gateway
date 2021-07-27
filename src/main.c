@@ -582,7 +582,7 @@ static void on_user_pairing_req(const struct cloud_event *evt)
 		 * subscriptions
 		 */
 		LOG_INF("Clearing persistent sessions...");
-		save_session_state(0);
+		nct_save_session_state(0);
 
 		ble_conn_mgr_init();
 		ble_conn_mgr_clear_desired(true);
@@ -832,7 +832,7 @@ void connection_evt_handler(const struct cloud_event *const evt)
 
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
-		setup_gw_shadow(modem);
+		set_shadow_modem(modem);
 
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;

@@ -11,6 +11,7 @@
 #include <modem/modem_info.h>
 #endif /* CONFIG_NRF_MODEM_LIB */
 #include <date_time.h>
+#include <net/nrf_cloud.h>
 
 #include "cJSON.h"
 #include "cJSON_os.h"
@@ -154,7 +155,7 @@ char *get_time_str(char *dst, size_t len)
 }
 
 int device_error_encode(char *ble_address, char *error_msg,
-			struct ble_msg *msg)
+			struct gw_msg *msg)
 {
 	/* TODO: Front end doesn't handle error messages yet.
 	 * This format may change.
@@ -186,8 +187,9 @@ int device_error_encode(char *ble_address, char *error_msg,
 	CJADDREFCS(event, "error", error);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -198,7 +200,7 @@ cleanup:
 	return ret;
 }
 
-int device_found_encode(uint8_t num_devices_found, struct ble_msg *msg)
+int device_found_encode(uint8_t num_devices_found, struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -246,8 +248,9 @@ int device_found_encode(uint8_t num_devices_found, struct ble_msg *msg)
 	CJADDREFCS(event, "devices", devices);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -261,7 +264,7 @@ cleanup:
 }
 
 int device_connect_result_encode(char *ble_address, bool conn_status,
-				 struct ble_msg *msg)
+				 struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -292,8 +295,9 @@ int device_connect_result_encode(char *ble_address, bool conn_status,
 	CJADDREFCS(event, "device", device);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -306,7 +310,7 @@ cleanup:
 }
 
 int device_disconnect_result_encode(char *ble_address, bool conn_status,
-				    struct ble_msg *msg)
+				    struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -337,8 +341,9 @@ int device_disconnect_result_encode(char *ble_address, bool conn_status,
 	CJADDREFCS(event, "device", device);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -352,7 +357,7 @@ cleanup:
 
 int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 				char *value, uint16_t value_length,
-				struct ble_msg *msg)
+				struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -393,8 +398,9 @@ int device_value_changed_encode(char *ble_address, char *uuid, char *path,
 	CJADDREFCS(event, "characteristic", chrc);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -409,7 +415,7 @@ cleanup:
 
 int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 				     char *value, uint16_t value_length,
-				     struct ble_msg *msg)
+				     struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -450,8 +456,9 @@ int device_value_write_result_encode(char *ble_address, char *uuid, char *path,
 	CJADDREFCS(event, "descriptor", desc);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -467,7 +474,7 @@ cleanup:
 int device_descriptor_value_encode(char *ble_address, char *uuid,
 				   char *path, char *value,
 				   uint16_t value_length,
-				   struct ble_msg *msg, bool changed)
+				   struct gw_msg *msg, bool changed)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -511,8 +518,9 @@ int device_descriptor_value_encode(char *ble_address, char *uuid,
 	CJADDREFCS(event, "descriptor", desc);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -527,7 +535,7 @@ cleanup:
 
 int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 			    char *value, uint16_t value_length,
-			    struct ble_msg *msg)
+			    struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -568,8 +576,9 @@ int device_chrc_read_encode(char *ble_address, char *uuid, char *path,
 	CJADDREFCS(event, "characteristic", chrc);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	LOG_DBG("Device JSON: %s", log_strdup(msg->buf));
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("Device JSON: %s", log_strdup((char *)msg->data.ptr));
 	ret = 0;
 
 cleanup:
@@ -583,7 +592,7 @@ cleanup:
 }
 
 static int create_device_wrapper(char *ble_address, bool conn_status,
-				 struct ble_msg *msg)
+				 struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *root_obj = cJSON_CreateObject();
@@ -616,8 +625,11 @@ static int create_device_wrapper(char *ble_address, bool conn_status,
 	CJADDREFCS(event, "services", services);
 	CJADDREFCS(root_obj, "event", event);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
-	msg->buf[strlen(msg->buf) - 3] = 0;
+	char *ptr = (char *)msg->data.ptr;
+
+	CJPRINT(root_obj, ptr, msg->data_max_len, 0);
+	ptr[strlen(ptr) - 3] = 0;
+	msg->data.len = strlen(ptr);
 	ret = 0;
 
 cleanup:
@@ -630,11 +642,11 @@ cleanup:
 	return ret;
 }
 
-int gateway_shadow_data_encode(void *modem_ptr,
-			       char *buf, size_t len)
+int gateway_shadow_data_encode(void *modem_ptr, struct gw_msg *msg)
 {
-	struct modem_param_info *modem;
 	int ret = -ENOMEM;
+	__ASSERT_NO_MSG(msg != NULL);
+
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *state_obj = cJSON_CreateObject();
 	cJSON *reported_obj = cJSON_CreateObject();
@@ -648,7 +660,7 @@ int gateway_shadow_data_encode(void *modem_ptr,
 
 	const char *const ui[] = {
 #if CONFIG_MODEM_INFO
-		/* not yet plumbed to report this: "RSRP",*/
+	/* not yet plumbed to report this: "RSRP", */
 #endif
 	};
 
@@ -661,17 +673,24 @@ int gateway_shadow_data_encode(void *modem_ptr,
 	size_t item_cnt = 0;
 
 #ifdef CONFIG_MODEM_INFO
-	modem = (struct modem_param_info *)modem_ptr;
+	int val = 0;
+	struct modem_param_info *modem = (struct modem_param_info *)modem_ptr;
+
 	if (modem == NULL) {
 		LOG_ERR("Unable to obtain modem parameters");
+		ret = -EINVAL;
+		goto cleanup;
 	} else {
-		int val;
-
 		val = modem_info_json_object_encode(modem, device_obj);
 		if (val > 0) {
 			item_cnt = (size_t)val;
+		} else if (val == 0) {
+			ret = -ECHILD;
+			goto cleanup;
+		} else if (val < 0) {
+			ret = val;
+			goto cleanup;
 		}
-		ret = 0;
 	}
 #endif
 
@@ -683,16 +702,13 @@ int gateway_shadow_data_encode(void *modem_ptr,
 		++item_cnt;
 	}
 
-	if (!item_cnt) {
-		ret = -ECHILD;
-		goto cleanup;
-	}
-
 	CJADDREFCS(reported_obj, "device", device_obj);
 	CJADDREFCS(state_obj, "reported", reported_obj);
 	CJADDREFCS(root_obj, "state", state_obj);
 
-	CJPRINT(root_obj, buf, len, 0);
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	ret = 0;
 
 cleanup:
 	if (ret) {
@@ -706,9 +722,11 @@ cleanup:
 }
 
 int device_shadow_data_encode(char *ble_address, bool connecting,
-			      bool connected, struct ble_msg *msg)
+			      bool connected, struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
+	__ASSERT_NO_MSG(msg != NULL);
+
 	cJSON *root_obj = cJSON_CreateObject();
 	cJSON *state_obj = cJSON_CreateObject();
 	cJSON *reported_obj = cJSON_CreateObject();
@@ -733,7 +751,8 @@ int device_shadow_data_encode(char *ble_address, bool connecting,
 	CJADDREFCS(state_obj, "reported", reported_obj);
 	CJADDREFCS(root_obj, "state", state_obj);
 
-	CJPRINT(root_obj, msg->buf, msg->len, 0);
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
 	ret = 0;
 
 cleanup:
@@ -746,23 +765,80 @@ cleanup:
 	return ret;
 }
 
+int gateway_desired_list_encode(struct desired_conn *desired, int num_desired,
+				struct gw_msg *msg)
+{
+	int ret = -ENOMEM;
+	__ASSERT_NO_MSG(msg != NULL);
+
+	cJSON *root_obj = cJSON_CreateObject();
+	cJSON *state_obj = cJSON_CreateObject();
+	cJSON *desired_obj = cJSON_CreateObject();
+	cJSON *connections_obj = cJSON_CreateArray();
+
+	if ((root_obj == NULL) || (state_obj == NULL) ||
+	    (desired_obj == NULL) || (connections_obj == NULL)) {
+		goto cleanup;
+	}
+
+	/* create array of desired BLE addresses */
+	for (int i = 0; i < num_desired; i++) {
+		if (!desired[i].active) {
+			continue;
+		}
+		if (desired_conns_strings) {
+			/* nrfcloud stage wants the new, simpler form of
+			 * desiredConnections where its just an array of strings
+			 */
+			CJADDARRSTR(connections_obj, desired[i].addr);
+		} else {
+			/* nrfcloud stage still uses older array of objects */
+			cJSON *item;
+
+			CJADDARROBJ(connections_obj, item);
+			CJADDSTRCS(item, "id", desired[i].addr);
+		}
+	}
+
+	CJADDCHK(desired_obj, "desiredConnections", connections_obj);
+	CJADDCHK(state_obj, "desired", desired_obj);
+	CJADDCHK(root_obj, "state", state_obj);
+
+	CJPRINT(root_obj, (char *)msg->data.ptr, msg->data_max_len, 0);
+	msg->data.len = strlen((char *)msg->data.ptr);
+	LOG_DBG("JSON: %s", log_strdup((char *)msg->data.ptr));
+
+	ret = 0;
+
+cleanup:
+	cJSON_Delete(connections_obj);
+	cJSON_Delete(desired_obj);
+	cJSON_Delete(state_obj);
+	cJSON_Delete(root_obj);
+
+	return ret;
+}
+
 /* Start of functions to assemble large JSON string. No room to create these
  * all at once in cJSON
  */
 static int device_discover_add_service(char *discovered_json,
-				       struct ble_msg *msg)
+				       struct gw_msg *msg)
 {
+	char *ptr = (char *)msg->data.ptr;
+
 	if (first_service == false) {
-		strcat(msg->buf, "}},");
+		strcat(ptr, "}},");
 	}
 
-	strcat(msg->buf, discovered_json + 1);
+	strcat(ptr, discovered_json + 1);
 
-	if (strlen(msg->buf) >= 3) {
-		msg->buf[strlen(msg->buf) - 3] = 0;
+	if (strlen(ptr) >= 3) {
+		ptr[strlen(ptr) - 3] = 0;
 	}
+	msg->data.len = strlen(ptr);
 
-	LOG_DBG("JSON Size: %d", strlen(msg->buf));
+	LOG_DBG("JSON Size: %d", msg->data.len);
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 	first_service = false;
@@ -771,19 +847,22 @@ static int device_discover_add_service(char *discovered_json,
 }
 
 static int device_discover_add_chrc(char *discovered_json,
-				    struct ble_msg *msg)
+				    struct gw_msg *msg)
 {
+	char *ptr = (char *)msg->data.ptr;
+
 	if (first_chrc == false) {
-		strcat(msg->buf, ",");
+		strcat(ptr, ",");
 	}
 
-	strcat(msg->buf, discovered_json + 1);
+	strcat(ptr, discovered_json + 1);
 
-	if (strlen(msg->buf) >= 1) {
-		msg->buf[strlen(msg->buf) - 1] = 0;
+	if (strlen(ptr) >= 1) {
+		ptr[strlen(ptr) - 1] = 0;
 	}
+	msg->data.len = strlen(ptr);
 
-	LOG_DBG("JSON Size: %d", strlen(msg->buf));
+	LOG_DBG("JSON Size: %d", msg->data.len);
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -792,16 +871,19 @@ static int device_discover_add_chrc(char *discovered_json,
 }
 
 static int device_discover_add_ccc(char *discovered_json,
-				   struct ble_msg *msg)
+				   struct gw_msg *msg)
 {
-	if (strlen(msg->buf) >= 2) {
-		msg->buf[strlen(msg->buf) - 2] = 0;
+	char *ptr = (char *)msg->data.ptr;
+
+	if (strlen(ptr) >= 2) {
+		ptr[strlen(ptr) - 2] = 0;
 	}
 
-	strcat(msg->buf, discovered_json + 1);
-	strcat(msg->buf, "}");
+	strcat(ptr, discovered_json + 1);
+	strcat(ptr, "}");
+	msg->data.len = strlen(ptr);
 
-	LOG_DBG("JSON Size: %d", strlen(msg->buf));
+	LOG_DBG("JSON Size: %d", msg->data.len);
 
 	memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -811,7 +893,7 @@ static int device_discover_add_ccc(char *discovered_json,
 
 static int svc_attr_encode(char *uuid, char *path,
 			    struct ble_device_conn *ble_conn_ptr,
-			    struct ble_msg *msg)
+			    struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *services = cJSON_CreateObject();
@@ -842,7 +924,7 @@ cleanup:
 
 static int chrc_attr_encode(char *uuid, char *path, uint8_t properties,
 			     struct ble_device_conn *ble_conn_ptr,
-			    struct ble_msg *msg)
+			    struct gw_msg *msg)
 {
 	int ret = -ENOMEM;
 	cJSON *chrc = cJSON_CreateObject();
@@ -911,7 +993,7 @@ cleanup:
 
 static int ccc_attr_encode(char *uuid, char *path,
 			   struct ble_device_conn *ble_conn_ptr,
-			   struct ble_msg *msg, bool sub_enabled)
+			   struct gw_msg *msg, bool sub_enabled)
 {
 	int ret = -ENOMEM;
 	cJSON *descriptor = cJSON_CreateObject();
@@ -948,7 +1030,7 @@ static int attr_encode(struct uuid_handle_pair *uuid_handle,
 		       struct uuid_handle_pair *other_handle,
 		       char *uuid_str, char *path,
 		       struct ble_device_conn *ble_conn_ptr,
-		       struct ble_msg *msg)
+		       struct gw_msg *msg)
 {
 	int ret = 0;
 
@@ -996,7 +1078,7 @@ void get_uuid_str(struct uuid_handle_pair *uuid_handle, char *str, size_t len)
 }
 
 int device_discovery_encode(struct ble_device_conn *conn_ptr,
-			    struct ble_msg *msg)
+			    struct gw_msg *msg)
 {
 	char uuid_str[BT_UUID_STR_LEN];
 	char service_attr_str[BT_UUID_STR_LEN];
@@ -1070,102 +1152,17 @@ int device_discovery_encode(struct ble_device_conn *conn_ptr,
 	 * device_discovery_send() will send malformed JSON
 	 */
 	if (num_encoded) {
-		ret = 0; /* ignore invalid UUID type since others were ok */
+		/* Add the remaing brackets to the JSON string */
+		strcat((char *)msg->data.ptr, "}}}}}");
+		msg->data.len = strlen((char *)msg->data.ptr);
+
+		/* ignore invalid UUID type since others were ok */
+		ret = 0;
+
 	} else if (!ret) {
 		ret = -EINVAL; /* no data to send */
 	}
 	return ret;
-}
-
-static int nrf_cloud_encode_gateway_desired_list(struct desired_conn *desired,
-						 int num_desired,
-						 struct nrf_cloud_data *output)
-{
-	__ASSERT_NO_MSG(output != NULL);
-
-	cJSON *root_obj = cJSON_CreateObject();
-	cJSON *state_obj = cJSON_CreateObject();
-	cJSON *desired_obj = cJSON_CreateObject();
-	cJSON *connections_obj = cJSON_CreateArray();
-
-	if ((root_obj == NULL) || (state_obj == NULL) ||
-	    (desired_obj == NULL) || (connections_obj == NULL)) {
-		goto cleanup;
-	}
-
-	/* create array of desired BLE addresses */
-	for (int i = 0; i < num_desired; i++) {
-		if (!desired[i].active) {
-			continue;
-		}
-		if (desired_conns_strings) {
-			/* nrfcloud stage wants the new, simpler form of
-			 * desiredConnections where its just an array of strings
-			 */
-			CJADDARRSTR(connections_obj, desired[i].addr);
-		} else {
-			/* nrfcloud stage still uses older array of objects */
-			cJSON *item;
-
-			CJADDARROBJ(connections_obj, item);
-			CJADDSTRCS(item, "id", desired[i].addr);
-		}
-	}
-
-	CJADDCHK(desired_obj, "desiredConnections", connections_obj);
-	CJADDCHK(state_obj, "desired", desired_obj);
-	CJADDCHK(root_obj, "state", state_obj);
-
-	char *buffer;
-
-	buffer = cJSON_PrintUnformatted(root_obj);
-	LOG_DBG("JSON: %s", log_strdup(buffer));
-	cJSON_Delete(root_obj);
-
-	if (buffer == NULL) {
-		return -ENOMEM;
-	}
-
-	output->ptr = buffer;
-	output->len = strlen(buffer);
-
-	return 0;
-
-cleanup:
-	cJSON_Delete(root_obj);
-	cJSON_Delete(state_obj);
-	cJSON_Delete(desired_obj);
-	cJSON_Delete(connections_obj);
-
-	return -ENOMEM;
-}
-
-int nrf_cloud_update_gateway_state(struct desired_conn *desired,
-					  int num_desired)
-{
-	int err;
-	struct nct_cc_data msg = {
-		.opcode = NCT_CC_OPCODE_UPDATE_REQ,
-		.id = 1,
-	};
-
-	err = nrf_cloud_encode_gateway_desired_list(desired,
-						    num_desired,
-						    &msg.data);
-	if (err) {
-		LOG_ERR("nrf_cloud_encode_gateway_desired_list() failed %d",
-			err);
-		return err;
-	}
-
-	err = nct_cc_send(&msg);
-	if (err) {
-		LOG_ERR("nct_cc_send failed %d", err);
-	}
-
-	nrf_cloud_free((void *)msg.data.ptr);
-
-	return err;
 }
 
 static char *get_addr_from_des_conn_array(cJSON *array, int index)
@@ -1286,8 +1283,8 @@ static int gateway_state_handler(void *root_obj)
 			}
 		}
 
-		/* device removed from cloud's array */
-		if (!found) {
+		/* device removed from cloud's array, and it wasn't manually added */
+		if (!found && !cons[i].manual) {
 			LOG_INF("Device removed by cloud: %s",
 				log_strdup(cons[i].addr));
 			changed = true;
@@ -1296,7 +1293,7 @@ static int gateway_state_handler(void *root_obj)
 	}
 
 	if (!changed) {
-		LOG_INF("Ignoring gateway state change");
+		LOG_DBG("Ignoring gateway state change");
 		return 0;
 	}
 	LOG_DBG("Gateway state change detected");
