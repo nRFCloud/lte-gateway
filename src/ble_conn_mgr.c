@@ -6,6 +6,7 @@
 #include <settings/settings.h>
 #include <nrf_cloud_fota.h>
 
+#include "gateway.h"
 #include "ble_conn_mgr.h"
 #include "ble_codec.h"
 #include "cJSON.h"
@@ -34,6 +35,11 @@ static void process_connection(int i)
 	if (dev->free) {
 		return;
 	}
+
+	if (!get_cloud_ready_status()) {
+		return;
+	}
+
 	/* Add devices to allowlist */
 	if (!dev->added_to_allowlist && !dev->shadow_updated && !dev->connected) {
 		if (!ble_add_to_allowlist(dev->addr, true)) {

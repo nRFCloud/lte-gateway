@@ -137,7 +137,7 @@ static bool compare(const char *s1, const char *s2)
 	return !strncmp(s1, s2, strlen(s2));
 }
 
-int gateway_handler(const struct nrf_cloud_gw_data *gw_data)
+int gateway_handler(const struct cloud_msg *gw_data)
 {
 	int ret = 0;
 	cJSON *root_obj;
@@ -157,11 +157,11 @@ int gateway_handler(const struct nrf_cloud_gw_data *gw_data)
 	cJSON *value_arr;
 	uint8_t value_len = 0;
 
-	root_obj = cJSON_Parse(gw_data->data.ptr);
+	root_obj = cJSON_Parse(gw_data->buf);
 
 	if (root_obj == NULL) {
 		LOG_ERR("cJSON_Parse failed: %s",
-			log_strdup((char *)gw_data->data.ptr));
+			log_strdup((char *)gw_data->buf));
 		return -ENOENT;
 	}
 
@@ -419,11 +419,20 @@ exit_handler:
 
 void init_gateway(void)
 {
-	nrf_cloud_register_gateway_handler(gateway_handler);
 	ble_codec_init();
 }
 
-int gw_client_id_get(char **id, size_t *id_len)
+int gw_client_id_query(void)
+{
+#if !defined(CONFIG_NRF_CLOUD_CLIENT_ID_SRC_RUNTIME)
+	return nrf_cloud_client_id_get(gateway_id, sizeof(gateway_id));
+#else
+	return strlen(gateway_id) ? 0 : -EINVAL;
+#endif
+}
+
+#if defined(CONFIG_NRF_CLOUD_CLIENT_ID_SRC_RUNTIME)
+int gw_psk_id_get(char **id, size_t *id_len)
 {
 	char psk_buf[AT_CMNG_READ_LEN];
 	int bytes_written;
@@ -480,8 +489,9 @@ int gw_client_id_get(char **id, size_t *id_len)
 			if (*ptr == '"') {
 				ptr++;
 			}
-			memcpy(gateway_id, ptr, NRF_CLOUD_CLIENT_ID_LEN);
-			gateway_id[NRF_CLOUD_CLIENT_ID_LEN] = 0;
+			ofs = strcspn(ptr, "\"");
+			memcpy(gateway_id, ptr, ofs);
+			gateway_id[ofs] = 0;
 			*id = gateway_id;
 			*id_len = strlen(gateway_id);
 
@@ -497,6 +507,31 @@ cleanup:
 		ret = -EIO;
 	}
 	return ret;
+}
+#endif
+
+int g2c_send(const struct nrf_cloud_data *output)
+{
+	struct nrf_cloud_tx_data msg;
+
+	msg.data.ptr = output->ptr;
+	msg.data.len = output->len;
+	msg.topic_type = NRF_CLOUD_TOPIC_MESSAGE;
+	msg.qos = MQTT_QOS_1_AT_LEAST_ONCE;
+
+	return nrf_cloud_send(&msg);
+}
+
+int gw_shadow_publish(const struct nrf_cloud_data *output)
+{
+	struct nrf_cloud_tx_data msg;
+
+	msg.data.ptr = output->ptr;
+	msg.data.len = output->len;
+	msg.topic_type = NRF_CLOUD_TOPIC_STATE;
+	msg.qos = MQTT_QOS_1_AT_LEAST_ONCE;
+
+	return nrf_cloud_send(&msg);
 }
 
 void device_shutdown(bool reboot)
