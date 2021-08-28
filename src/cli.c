@@ -403,7 +403,7 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 	if (!notify) {
 		shell_print(shell, "   MAC, connected, discovered, shadow"
 				   " updated, denylist status, ctrld by,"
-				   " num UUIDs");
+				   " visible, num UUIDs");
 	}
 	for (i = 0; i < CONFIG_BT_MAX_CONN; i++) {
 		dev = get_connected_device(i);
@@ -411,7 +411,7 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 			continue;
 		}
 		count++;
-		shell_print(shell, "%u. %s, %s, %s, %s, %s, %s, UUIDs:%u",
+		shell_print(shell, "%u. %s, %s, %s, %s, %s, %s, %s, UUIDs:%u",
 			    count,
 			    dev->addr,
 			    dev->connected ? "CONNNECTED" : "disconnected",
@@ -422,6 +422,7 @@ static void print_conn_info(const struct shell *shell, bool show_path,
 			    dev->added_to_allowlist ? "CONN ALLOWED" :
 			    "conn denied",
 			    ble_conn_mgr_enabled(dev->addr) ? "CLOUD" : "local",
+			    !dev->hidden ? "VISIBLE" : "hidden",
 			    (unsigned int)dev->num_pairs
 			   );
 		if (!notify) {

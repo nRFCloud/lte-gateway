@@ -47,6 +47,7 @@ struct ble_device_conn {
 	bool shadow_updated : 1;
 	bool disconnect : 1;
 	bool dfu_pending : 1;
+	bool hidden : 1;
 };
 
 struct desired_conn {
@@ -86,6 +87,7 @@ int ble_conn_mgr_get_subscribed(uint16_t handle,
 void ble_conn_mgr_update_desired(const char *addr, uint8_t index);
 int ble_conn_mgr_add_desired(const char *addr, bool manual);
 int ble_conn_mgr_rem_desired(const char *addr, bool manual);
+bool ble_conn_mgr_is_desired(const char *addr);
 void ble_conn_mgr_clear_desired(bool all);
 bool ble_conn_mgr_enabled(const char *addr);
 void ble_conn_mgr_update_connections(void);

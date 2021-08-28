@@ -488,6 +488,9 @@ int peripheral_dfu_config(const char *addr, int size, const char *version,
 		goto failed;
 	}
 
+	/* special dfu flag -- don't send info to cloud about this dfu device */
+	conn->hidden = true;
+
 	LOG_INF("Waiting for device discovery...");
 	while (!conn->discovered && !conn->encode_discovered) {
 		k_sleep(K_MSEC(100));
