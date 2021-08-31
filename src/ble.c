@@ -22,6 +22,7 @@
 #include "ble.h"
 
 #include "ble_codec.h"
+#include "gateway.h"
 #include "ctype.h"
 #include "nrf_cloud_transport.h"
 #include "ble_conn_mgr.h"
@@ -338,7 +339,7 @@ void send_notify_data(int unused1, int unused2, int unused3)
 		LOG_DBG("UUID %s, path %s, len %u, json %s",
 			log_strdup(uuid), log_strdup(path),
 			rx_data->length, log_strdup((char *)output.data.ptr));
-		err = nrf_cloud_g2c_send(&output.data);
+		err = g2c_send(&output.data);
 		k_mutex_unlock(&output.lock);
 		if (err) {
 			LOG_ERR("Unable to send: %d", err);
@@ -713,12 +714,12 @@ static void send_sub(char *ble_addr, char *path, struct gw_msg *out,
 				       BT_UUID_GATT_CCC_VAL_STR,
 				       path, value, sizeof(value),
 				       out, true);
-	nrf_cloud_g2c_send(&out->data);
+	g2c_send(&out->data);
 	device_value_write_result_encode(ble_addr,
 					 BT_UUID_GATT_CCC_VAL_STR,
 					 path, value, sizeof(value),
 					 out);
-	nrf_cloud_g2c_send(&out->data);
+	g2c_send(&out->data);
 	k_mutex_unlock(&out->lock);
 }
 
@@ -836,7 +837,7 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 		/* Send error when limit is reached. */
 		k_mutex_lock(&output.lock, K_FOREVER);
 		device_error_encode(ble_addr, msg, &output);
-		nrf_cloud_g2c_send(&output.data);
+		g2c_send(&output.data);
 		k_mutex_unlock(&output.lock);
 	}
 
@@ -986,18 +987,22 @@ int ble_discover(struct ble_device_conn *connection_ptr)
 			discover_in_progress = true;
 			connection_ptr->discovering = true;
 
-			k_sleep(K_MSEC(1000));
-			err = bt_gatt_dm_start(conn, NULL, &discovery_cb, NULL);
+			for (int i = 1; i < 3; i++) {
+				if (i > 1) {
+					LOG_INF("Retrying...");
+				}
+				err = bt_gatt_dm_start(conn, NULL, &discovery_cb, NULL);
+				if (!err) {
+					break;
+				}
+				LOG_WRN("Service discovery err %d", err);
+				k_sleep(K_MSEC(500));
+			}
 			if (err) {
-				LOG_ERR("Could not start service discovery,"
-					" err %d", err);
+				LOG_ERR("Aborting discovery.  Disconnecting from device...");
 				connection_ptr->discovering = false;
 				discover_in_progress = false;
-
-				/* Disconnect device. */
-				LOG_INF("Disconnecting from device...");
 				bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
-
 				bt_conn_unref(conn);
 				ble_conn_set_connected(connection_ptr, false);
 				return err;
@@ -1054,7 +1059,7 @@ int set_shadow_modem(void *modem)
 	k_mutex_lock(&output.lock, K_FOREVER);
 	err = gateway_shadow_data_encode(modem, &output);
 	if (!err) {
-		err = nrf_cloud_gw_shadow_publish(&output.data);
+		err = gw_shadow_publish(&output.data);
 		if (err) {
 			LOG_ERR("nrf_cloud_gw_shadow_publish() failed %d", err);
 		}
@@ -1074,7 +1079,7 @@ int set_shadow_ble_conn(char *ble_address, bool connecting, bool connected)
 	err = device_shadow_data_encode(ble_address, connecting, connected,
 					&output);
 	if (!err) {
-		err = nrf_cloud_gw_shadow_publish(&output.data);
+		err = gw_shadow_publish(&output.data);
 		if (err) {
 			LOG_ERR("nrf_cloud_gw_shadow_publish() failed %d", err);
 		}
@@ -1094,7 +1099,7 @@ int set_shadow_desired_conn(struct desired_conn *desired, int num_desired)
 					  num_desired,
 					  &output);
 	if (!err) {
-		err = nrf_cloud_gw_shadow_publish(&output.data);
+		err = gw_shadow_publish(&output.data);
 		if (err) {
 			LOG_ERR("nrf_cloud_gw_shadow_publish() failed %d", err);
 		}
@@ -1172,7 +1177,7 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 
 	k_mutex_lock(&output.lock, K_FOREVER);
 	device_connect_result_encode(addr_trunc, true, &output);
-	nrf_cloud_g2c_send(&output.data);
+	g2c_send(&output.data);
 	k_mutex_unlock(&output.lock);
 
 	if (!connection_ptr->connected) {
@@ -1212,7 +1217,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	k_mutex_lock(&output.lock, K_FOREVER);
 	device_disconnect_result_encode(addr_trunc, false, &output);
-	nrf_cloud_g2c_send(&output.data);
+	g2c_send(&output.data);
 	k_mutex_unlock(&output.lock);
 
 	/* if device disconnected on purpose, don't bother updating
@@ -1270,7 +1275,7 @@ void ble_device_found_enc_handler(struct k_work *work)
 	k_mutex_lock(&output.lock, K_FOREVER);
 	device_found_encode(num_devices_found, &output);
 	LOG_DBG("Sending scan...");
-	nrf_cloud_g2c_send(&output.data);
+	g2c_send(&output.data);
 	k_mutex_unlock(&output.lock);
 }
 
@@ -1462,7 +1467,7 @@ int device_discovery_send(struct ble_device_conn *conn_ptr)
 
 	if (!ret) {
 		LOG_INF("Sending discovery; JSON Size: %d", output.data.len);
-		nrf_cloud_g2c_send(&output.data);
+		g2c_send(&output.data);
 	}
 	memset((char *)output.data.ptr, 0, output.data.len);
 	k_mutex_unlock(&output.lock);

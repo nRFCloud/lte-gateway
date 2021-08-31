@@ -81,7 +81,6 @@ void print_fw_info(const struct shell *shell)
 	/* this does not work: fw_info *info = fw_info_find(0); */
 	extern struct fw_info m_firmware_info;
 	struct fw_info *info = &m_firmware_info;
-	static char id[64];
 
 	if (info) {
 		shell_print(shell, "HW rev: \t%s", HW_REV_STRING);
@@ -92,12 +91,6 @@ void print_fw_info(const struct shell *shell)
 		shell_print(shell, "Start:  \t0x%08x", info->address);
 		shell_print(shell, "Boot:   \t0x%08x", info->boot_address);
 		shell_print(shell, "Valid:  \t%u", info->valid);
-
-		if (nrf_cloud_client_id_get(id, sizeof(id)) == 0) {
-			shell_print(shell, "Dev ID: \t%s", id);
-		} else {
-			shell_print(shell, "Dev ID: unknown");
-		}
 	}
 }
 
@@ -298,20 +291,27 @@ void print_connection_status(const struct shell *shell)
 	shell_print(shell, "cloud connection: \t%s",
 		    get_cloud_connection_status() ?
 		    "connected" : "disconnected");
+	shell_print(shell, "cloud ready: \t\t%s",
+		    get_cloud_ready_status() ?
+		    "ready" : "not ready");
 }
 
 static void print_cloud_info(const struct shell *shell)
 {
-	char stage[8];
-	char tenant_id[40];
+	char stage[NRF_CLOUD_STAGE_ID_MAX_LEN] = "unknown";
+	char tenant_id[NRF_CLOUD_TENANT_ID_MAX_LEN] = "unknown";
+	static char id[NRF_CLOUD_CLIENT_ID_MAX_LEN] = "unknown";
 
 	nct_stage_get(stage, sizeof(stage));
 	nrf_cloud_tenant_id_get(tenant_id, sizeof(tenant_id));
+	nrf_cloud_client_id_get(id, sizeof(id));
 	print_connection_status(shell);
 
 	shell_print(shell, "nrfcloud stage: \t%s", stage);
-	shell_print(shell, "nrfcloud tenant id: \t%s", tenant_id);
 	shell_print(shell, "nrfcloud endpoint: \t%s", CONFIG_NRF_CLOUD_HOST_NAME);
+	shell_print(shell, "nrfcloud tenant id: \t%s", tenant_id);
+	shell_print(shell, "nrfcloud dev id: \t%s", id);
+	shell_print(shell, "security sectag: \t%d", CONFIG_NRF_CLOUD_SEC_TAG);
 }
 
 static void print_ctlr_info(const struct shell *shell)
@@ -1468,6 +1468,8 @@ static int cmd_login(const struct shell *shell, size_t argc, char **argv)
 	if (check_passwd(argv[1]) == 0) {
 		attempts = 0;
 		shell_obscure_set(shell, false);
+		z_shell_log_backend_enable(shell->log_backend, (void *)shell,
+					   CONFIG_STARTING_LOG_LEVEL);
 		z_shell_history_purge(shell->history);
 		shell_set_root_cmd(NULL);
 		shell_prompt_change(shell, CONFIG_SHELL_PROMPT_SECURE);

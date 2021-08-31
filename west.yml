@@ -9,8 +9,8 @@ manifest:
   projects:
     - name: sdk-nrf
       path: nrf
-      remote: origin
-      revision: feature-get-ready-for-ncs-pr
+      remote: nordic
+      revision: master
       import: true
   self:
     path: lte-gateway

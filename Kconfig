@@ -163,12 +163,6 @@ config WATCHDOG_TIMEOUT_MSEC
 	int "Watchdog timeout in milliseconds"
 	default 10000
 
-config NRF_CLOUD_GATEWAY
-	bool "nRF Cloud Gateway"
-	default y
-	help
-	  Defines if gateway
-
 config FLASH_TEST
 	bool "Enable Flash Test module"
 	default n

@@ -189,6 +189,7 @@ static void cycle_cloud_connection(struct k_work *work);
 static void connection_evt_handler(const struct cloud_event *const evt);
 static void no_sim_go_offline(struct k_work *work);
 static void date_time_event_handler(const struct date_time_evt *evt);
+struct modem_param_info * query_modem_info(void);
 
 bool get_lte_connection_status(void)
 {
@@ -198,6 +199,11 @@ bool get_lte_connection_status(void)
 bool get_cloud_connection_status(void)
 {
 	return cloud_connection_status;
+}
+
+bool get_cloud_ready_status(void)
+{
+	return (atomic_get(&cloud_association) == CLOUD_ASSOCIATION_STATE_READY);
 }
 
 static void shutdown_modem(void)
@@ -508,18 +514,6 @@ void connect_to_cloud(const int32_t connect_delay_s)
 		k_work_cancel_delayable(&cloud_reboot_work);
 	} else {
 		initial_connect = false;
-
-		char id[256];
-		int ret;
-
-		LOG_INF("Retrieve device ID...");
-		ret = cloud_get_id(cloud_backend, id, sizeof(id));
-		if (ret) {
-			LOG_ERR("Could not retrieve ID: %d", ret);
-		} else {
-			LOG_INF("Device ID = %s", log_strdup(id));
-			LOG_INF("Endpoint = %s", CONFIG_NRF_CLOUD_HOST_NAME);
-		}
 	}
 
 	k_work_reschedule_for_queue(&application_work_q,
@@ -665,6 +659,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 			 void *user_data)
 {
 	ARG_UNUSED(user_data);
+	struct modem_param_info *modem;
 
 	switch (evt->type) {
 	case CLOUD_EVT_CONNECTED:
@@ -682,6 +677,8 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #endif
 		atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_READY);
 
+		modem = query_modem_info();
+		set_shadow_modem(modem);
 		break;
 	case CLOUD_EVT_ERROR:
 		LOG_INF("CLOUD_EVT_ERROR");
@@ -691,6 +688,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		break;
 	case CLOUD_EVT_DATA_RECEIVED:
 		LOG_INF("CLOUD_EVT_DATA_RECEIVED");
+		gateway_handler(&evt->data.msg);
 		break;
 	case CLOUD_EVT_PAIR_REQUEST:
 		LOG_INF("CLOUD_EVT_PAIR_REQUEST");
@@ -806,8 +804,6 @@ void control_cloud_connection(bool enable)
 
 void connection_evt_handler(const struct cloud_event *const evt)
 {
-	struct modem_param_info *modem;
-
 	LOG_INF("*******************************");
 	if (evt->type == CLOUD_EVT_CONNECTING) {
 		cloud_connection_status = false;
@@ -824,7 +820,6 @@ void connection_evt_handler(const struct cloud_event *const evt)
 		date_time_update_async(date_time_event_handler);
 #endif
 		cloud_connection_status = true;
-		modem = query_modem_info();
 		LOG_INF("CLOUD_EVT_CONNECTED");
 		k_work_cancel_delayable(&cloud_reboot_work);
 		k_sem_take(&cloud_disconnected, K_NO_WAIT);
@@ -832,8 +827,6 @@ void connection_evt_handler(const struct cloud_event *const evt)
 
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
-		set_shadow_modem(modem);
-
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
 
@@ -906,7 +899,8 @@ static void cloud_api_init(void)
 	__ASSERT(cloud_backend != NULL, "nRF Cloud backend not found");
 
 #if defined(CONFIG_NRF_CLOUD_CLIENT_ID_SRC_RUNTIME)
-	gw_client_id_get(&cloud_backend->config->id, &cloud_backend->config->id_len);
+	/* src runtime id must be provided pre-cloud init */
+	gw_psk_id_get(&cloud_backend->config->id, &cloud_backend->config->id_len);
 #endif
 
 	ret = cloud_init(cloud_backend, cloud_event_handler);
@@ -914,6 +908,16 @@ static void cloud_api_init(void)
 		LOG_ERR("Cloud backend could not be initialized, error: %d",
 			ret);
 		cloud_error_handler(ret);
+	}
+
+	/* regardless of client ID method, make an internal copy of the id */
+	ret = gw_client_id_query();
+	if (ret) {
+		LOG_ERR("Device ID is unknown: %d", ret);
+		cloud_error_handler(ret);
+	} else {
+		LOG_INF("Device ID = %s", log_strdup(gateway_id));
+		LOG_INF("Endpoint = %s", CONFIG_NRF_CLOUD_HOST_NAME);
 	}
 
 #if CONFIG_GATEWAY_BLE_FOTA

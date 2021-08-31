@@ -6,6 +6,10 @@
 	};
 };
 
+&gpiote {
+	interrupts = <49 NRF_DEFAULT_IRQ_PRIORITY>;
+};
+
 &uart2 {
 	current-speed = <1000000>;
 	status = "okay";
@@ -22,7 +26,4 @@
 		req-pin = <21>; /* <&interface_to_nrf52840 3 0>; */
 		rdy-pin = <19>; /* <&interface_to_nrf52840 2 0>; */
 	};
-};
-&gpiote {
-	interrupts = <13 NRF_DEFAULT_IRQ_PRIORITY>;
 };

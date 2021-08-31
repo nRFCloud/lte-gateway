@@ -114,7 +114,6 @@
 		spi-max-frequency = <80000000>;
 		size = <0x4000000>;
 		jedec-id = [ef 40 17];
-		has-be32k;
 	};
 };
 
