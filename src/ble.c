@@ -313,6 +313,10 @@ void send_notify_data(int unused1, int unused2, int unused3)
 				goto cleanup;
 			}
 		}
+		if (connected_ptr && connected_ptr->hidden) {
+			LOG_DBG("Suppressing notification write to cloud");
+			goto cleanup;
+		}
 
 		k_mutex_lock(&output.lock, K_FOREVER);
 		if (rx_data->read && !ccc) {
@@ -774,7 +778,11 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 
 		uint8_t value[2] = {0, 0};
 
-		send_sub(ble_addr, path, &output, value);
+		if (connected_ptr && connected_ptr->hidden) {
+			LOG_DBG("suppressing value_changed");
+		} else {
+			send_sub(ble_addr, path, &output, value);
+		}
 		LOG_INF("Unsubscribe: Addr %s Handle %d",
 			log_strdup(ble_addr), handle);
 
@@ -789,7 +797,11 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			0
 		};
 
-		send_sub(ble_addr, path, &output, value);
+		if (connected_ptr && connected_ptr->hidden) {
+			LOG_DBG("suppressing value_changed");
+		} else {
+			send_sub(ble_addr, path, &output, value);
+		}
 		LOG_INF("Subscribe Dup: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
@@ -820,7 +832,11 @@ int ble_subscribe(char *ble_addr, char *chrc_uuid, uint8_t value_type)
 			0
 		};
 
-		send_sub(ble_addr, path, &output, value);
+		if (connected_ptr && connected_ptr->hidden) {
+			LOG_DBG("suppressing value_changed");
+		} else {
+			send_sub(ble_addr, path, &output, value);
+		}
 		LOG_INF("Subscribe: Addr %s Handle %d %s",
 			log_strdup(ble_addr), handle,
 			(value_type == BT_GATT_CCC_NOTIFY) ?
@@ -1175,14 +1191,20 @@ static void connected(struct bt_conn *conn, uint8_t conn_err)
 		return;
 	}
 
-	k_mutex_lock(&output.lock, K_FOREVER);
-	device_connect_result_encode(addr_trunc, true, &output);
-	g2c_send(&output.data);
-	k_mutex_unlock(&output.lock);
+	if (connection_ptr && connection_ptr->hidden) {
+		LOG_DBG("suppressing device_connect");
+	} else {
+		k_mutex_lock(&output.lock, K_FOREVER);
+		device_connect_result_encode(addr_trunc, true, &output);
+		g2c_send(&output.data);
+		k_mutex_unlock(&output.lock);
+	}
 
 	if (!connection_ptr->connected) {
 		LOG_INF("Connected: %s", log_strdup(addr));
-		set_shadow_ble_conn(addr_trunc, false, true);
+		if (!connection_ptr->hidden) {
+			set_shadow_ble_conn(addr_trunc, false, true);
+		}
 		ble_conn_set_connected(connection_ptr, true);
 		ble_subscribe_device(conn, true);
 	} else {
@@ -1215,18 +1237,24 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
 
-	k_mutex_lock(&output.lock, K_FOREVER);
-	device_disconnect_result_encode(addr_trunc, false, &output);
-	g2c_send(&output.data);
-	k_mutex_unlock(&output.lock);
+	if (!ble_conn_mgr_is_desired(addr_trunc)) {
+		LOG_INF("suppressing device_disconnect");
+	} else {
+		k_mutex_lock(&output.lock, K_FOREVER);
+		device_disconnect_result_encode(addr_trunc, false, &output);
+		g2c_send(&output.data);
+		k_mutex_unlock(&output.lock);
+	}
 
 	/* if device disconnected on purpose, don't bother updating
 	 * shadow; it will likely reconnect shortly
 	 */
 	if (reason != BT_HCI_ERR_REMOTE_USER_TERM_CONN) {
-		(void)set_shadow_ble_conn(addr_trunc, false, false);
 		LOG_INF("Disconnected: %s (reason 0x%02x)", log_strdup(addr),
 			reason);
+		if (connection_ptr && !connection_ptr->hidden) {
+			(void)set_shadow_ble_conn(addr_trunc, false, false);
+		}
 		if (connection_ptr) {
 			ble_conn_set_connected(connection_ptr, false);
 		}
@@ -1462,6 +1490,10 @@ void ble_stop_activity(void)
 
 int device_discovery_send(struct ble_device_conn *conn_ptr)
 {
+	if (conn_ptr && conn_ptr->hidden) {
+		LOG_DBG("suppressing device_discovery_send");
+		return 0;
+	}
 	k_mutex_lock(&output.lock, K_FOREVER);
 	int ret = device_discovery_encode(conn_ptr, &output);
 

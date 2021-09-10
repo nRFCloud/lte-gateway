@@ -46,10 +46,12 @@ static void process_connection(int i)
 			dev->added_to_allowlist = true;
 			LOG_INF("Device added to allowlist.");
 		}
-		err = set_shadow_ble_conn(dev->addr, true, false);
-		if (!err) {
-			dev->shadow_updated = true;
-			LOG_INF("Shadow updated.");
+		if (!dev->hidden) {
+			err = set_shadow_ble_conn(dev->addr, true, false);
+			if (!err) {
+				dev->shadow_updated = true;
+				LOG_INF("Shadow updated.");
+			}
 		}
 	}
 
@@ -296,6 +298,19 @@ bool ble_conn_mgr_enabled(const char *addr)
 	}
 
 	return true;
+}
+
+bool ble_conn_mgr_is_desired(const char *addr)
+{
+	struct desired_conn *con;
+
+	if (addr == NULL) {
+		return false;
+	}
+
+	find_desired_connection(addr, &con);
+
+	return (con != NULL) && (con->active);
 }
 
 int ble_conn_mgr_generate_path(struct ble_device_conn *conn_ptr,
