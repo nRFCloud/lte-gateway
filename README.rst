@@ -3,7 +3,7 @@
 nRF9160: nRF Cloud BLE Gateway
 ##############################
 
-The nRF Cloud BLE Gateway uses the :ref:`lib_nrf_cloud` to connect an nRF9160-based board to `nRF Cloud`_ via LTE, connnect to multiple Bluetooth LE peripherals, and transmit their data to the cloud.
+The nRF Cloud BLE Gateway uses the `lib_nrf_cloud`_ to connect an nRF9160-based board to `nRF Cloud`_ via LTE, connnect to multiple Bluetooth LE peripherals, and transmit their data to the cloud.
 Therefore, this application acts as a gateway between Bluetooth LE and the LTE connection to nRF Cloud.
 
 Overview
@@ -16,7 +16,7 @@ The data is visualized in nRF Cloud's web interface.
 Programs such as PuTTY_, `Tera Term`_, or the `LTE Link Monitor`_ application, implemented as part of `nRF Connect for Desktop`_, can be used to interact with the included shell.
 You can also send AT commands from the **Terminal** card on nRF Cloud when the device is connected.
 
-By default, the gateway supports firmware updates through :ref:`lib_nrf_cloud_fota`.
+By default, the gateway supports firmware updates through `lib_nrf_cloud_fota`_.
 
 .. _nrfcloud_ble_gateway_requirements:
 
@@ -26,11 +26,11 @@ Requirements
 * One of the following boards:
 
   * Apricity Gateway
-  * :ref:`nRF9160 DK <ug_nrf9160>`
+  * `nRF9160 DK <ug_nrf9160>`_
 
-* For the Apricity Gateway nRF9160, :ref:`lte-gateway-ble` must be programmed in the nRF52 board controller.
-* For the nRF9160 DK, :ref:`hci_lpuart` must instead be programmed in the nRF52 board controller.
-* The sample is configured to compile and run as a non-secure application on nRF91's Cortex-M33. Therefore, it automatically includes the :ref:`secure_partition_manager` that prepares the required peripherals to be available for the application.
+* For the Apricity Gateway nRF9160, `nrfcloud_gateway_controller`_ must be programmed in the nRF52 board controller.
+* For the nRF9160 DK, `hci_lpuart`_ must instead be programmed in the nRF52 board controller.
+* The sample is configured to compile and run as a non-secure application on nRF91's Cortex-M33. Therefore, it automatically includes the `secure_partition_manager`_ that prepares the required peripherals to be available for the application.
 
 
 .. _nrfcloud_ble_gateway_user_interface:
@@ -149,7 +149,7 @@ Program nRF9160 Application Processor
 Program nRF52840 Board Controller
 ---------------------------------
 
-`lte-gateway-ble`_
+`nrfcloud_gateway_controller`_
 
 For the Apricity Gateway hardware, follow the same instructions as above in the folder for its repository, except use ``apricity_gateway_nrf52840`` instead of ``apricity_gateway_nrf9160ns``, and connect the Tag Connect to ``NRF52:J1``.
 
@@ -416,43 +416,42 @@ Cloud
 Dependencies
 ************
 
-This application uses the following |NCS| libraries and drivers:
+This application uses the following nRF Connect SDK libraries and drivers:
 
-* :ref:`lib_nrf_cloud`
-* :ref:`modem_info_readme`
-* :ref:`at_cmd_parser_readme`
+* `lib_nrf_cloud`_
+* `modem_info_readme`_
+* `at_cmd_parser_readme`_
 * ``lib/modem_lib``
-* :ref:`dk_buttons_and_leds_readme`
+* `dk_buttons_and_leds_readme`_
 * ``drivers/lte_link_control``
 * ``drivers/flash``
 * ``bluetooth/gatt_dm``
 * ``bluetooth/scan``
 
 From Zephyr:
-  * :ref:`zephyr:bluetooth_api`
+  * `zephyr:bluetooth_api`_
 
 In addition, it uses the Secure Partition Manager sample:
 
-* :ref:`secure_partition_manager`
+* `secure_partition_manager`_
 
-For nrf52840
-* :ref:`lte-gateway-ble`
-* :ref:`hci_lpuart`
+For nrf52840:
+
+* `nrfcloud_gateway_controller`_
+* `hci_lpuart`_
 
 History
 *******
 
-The Apricity Gateway application was created using the following |NCS| sample applications:
+The Apricity Gateway application was created using the following nRF Connect SDK sample applications:
 
-  * :ref:`lte_ble_gateway`
-  * :ref:`asset_tracker`
+  * `lte_ble_gateway`_
+  * `asset_tracker`_
 
 From Zephyr:
-  * :ref:`zephyr:bluetooth-hci-uart-sample`
+  * `zephyr:bluetooth-hci-uart-sample`_
 
 
-Links
-*****
 .. ### These are links used in gateway docs.
 
 .. _PuTTY: https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html
@@ -467,7 +466,7 @@ Links
 
 .. _`nRF Cloud`: https://nrfcloud.com/
 
-.. _`lte-gateway-ble`: https://github.com/nRFCloud/lte-gateway-ble
+.. _`nrfcloud_gateway_controller`: https://github.com/nRFCloud/lte-gateway-ble
 
 .. _`Modem Firmware v1.3.0`: https://www.nordicsemi.com/-/media/Software-and-other-downloads/Dev-Kits/nRF9160-DK/nRF9160-modem-FW/mfw_nrf9160_1.3.0.zip
 
@@ -476,3 +475,18 @@ Links
 .. _`Create CA Cert`: https://github.com/nRFCloud/utils/tree/master/python/modem-firmware-1.3%2B#create-ca-cert
 
 .. _`Device Credentials Installer`: https://github.com/nRFCloud/utils/tree/master/python/modem-firmware-1.3%2B#device-credentials-installer
+
+.. _`asset_tracker`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/applications/asset_tracker/README.html
+.. _`lte_ble_gateway`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/samples/nrf9160/lte_ble_gateway/README.html
+.. _`lib_nrf_cloud_fota`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/networking/nrf_cloud.html#firmware-over-the-air-fota-updates
+.. _`nRF9160 DK <ug_nrf9160>`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/ug_nrf9160.html#ug-nrf9160
+.. _`hci_lpuart`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/samples/bluetooth/hci_lpuart/README.html
+.. _`secure_partition_manager`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/samples/spm/README.html#secure-partition-manager
+.. _`lib_nrf_cloud`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/networking/nrf_cloud.html
+.. _`modem_info_readme`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/modem/modem_info.html
+.. _`at_cmd_parser_readme`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/modem/at_cmd_parser.html
+.. _`dk_buttons_and_leds_readme`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/others/dk_buttons_and_leds.html
+
+.. _`zephyr:bluetooth_api`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/reference/bluetooth/index.html
+.. _`zephyr:bluetooth-hci-uart-sample`: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/samples/bluetooth/hci_uart/README.html
+
