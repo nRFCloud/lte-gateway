@@ -72,6 +72,8 @@ Firmware
 User interface
 **************
 
+One can locally manage the gateway with a USB connection and a terminal program.  See :ref:`Shell` for details.
+
 The Apricity Gateway button has the following functions:
 
     * Power off device when held for more than one second and released before reset.
@@ -152,6 +154,8 @@ Program nRF52840 Board Controller
 `nrfcloud_gateway_controller`_
 
 For the Apricity Gateway hardware, follow the same instructions as above in the folder for its repository, except use ``apricity_gateway_nrf52840`` instead of ``apricity_gateway_nrf9160ns``, and connect the Tag Connect to ``NRF52:J1``.
+
+For the nRF9160 DK, `hci_lpuart`_ must instead be programmed in the nRF52 board controller.  This should be done from the root of the lte-gatweway repo so that the required device tree overlays in the `boards <./boards>`_ folder are utilized.
 
 Program The nRF9160 Modem Processor
 -----------------------------------
@@ -251,6 +255,8 @@ After programming the application and all prerequisites to your board, test the 
 #. Add BLE devices by clicking on the + sign.  Read, write, and enable notifications on connected peripheral and observe data being received on the nRF Cloud. 
 #. Optionally send AT commands from the terminal, and observe that the response is received.
 
+
+.. _Shell:
 
 Using the Management Interface (Shell)
 **************************************
