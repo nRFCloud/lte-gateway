@@ -75,22 +75,28 @@ char *rem_eol(const char *s)
 	return x;
 }
 
-void print_fw_info(const struct shell *shell)
+void print_fw_info(const struct shell *shell, bool verbose)
 {
-	/* TODO: debug this */
-	/* this does not work: fw_info *info = fw_info_find(0); */
 	extern struct fw_info m_firmware_info;
 	struct fw_info *info = &m_firmware_info;
 
 	if (info) {
 		shell_print(shell, "HW rev: \t%s", HW_REV_STRING);
-		shell_print(shell, "FW rev: \t%s", FW_REV_STRING);
+		shell_print(shell, "FW rev: \t" FW_REV_STRING_FMT,
+			    FW_VERSION_MAJOR, FW_VERSION_MINOR,
+			    FW_VERSION_PATCH, FW_VERSION_HASH);
 		shell_print(shell, "Built:  \t%s", BUILT_STRING);
+		if (!verbose) {
+			return;
+		}
+		if (!fw_info_check((uint32_t)info)) {
+			shell_error(shell, "fw_info struct is invalid");
+			return;
+		}
 		shell_print(shell, "Ver:    \t%u", info->version);
 		shell_print(shell, "Size:   \t%u", info->size);
 		shell_print(shell, "Start:  \t0x%08x", info->address);
 		shell_print(shell, "Boot:   \t0x%08x", info->boot_address);
-		shell_print(shell, "Valid:  \t%u", info->valid);
 	}
 }
 
@@ -877,7 +883,7 @@ static int cmd_info_gateway(const struct shell *shell, size_t argc, char **argv)
 		}
 	}
 
-	print_fw_info(shell);
+	print_fw_info(shell, true);
 	print_heap(detailed);
 	print_log_strdup(shell);
 	return 0;
@@ -1216,8 +1222,10 @@ static void set_at_prompt(const struct shell *shell, bool at_mode)
 
 static int app_cmd_at(const struct shell *shell, size_t argc, char **argv)
 {
-	ARG_UNUSED(argc);
-
+	if (argv[1] == NULL) {
+		shell_help(shell);
+		return -EINVAL;
+	}
 	if (strcmp(argv[1], "enable") == 0) {
 		shell_set_root_cmd("at");
 		set_at_prompt(shell, true);
@@ -1226,8 +1234,6 @@ static int app_cmd_at(const struct shell *shell, size_t argc, char **argv)
 	else if (strcmp(argv[1], "exit") == 0) {
 		set_at_prompt(shell, false);
 		return 0;
-	} else {
-		set_at_prompt(shell, true);
 	}
 	int err;
 
@@ -1300,6 +1306,9 @@ fota firmware.nrfcloud.com 3c7003c6-45a0-4a74-9023-1e006ceeb835/APP*30f6ce17*1.4
 */
 static int cmd_fota(const struct shell *shell, size_t argc, char **argv)
 {
+	if (argc < 3) {
+		return -EINVAL;
+	}
 	char *host = argv[1];
 	char *path = argv[2];
 	int sec_tag = CONFIG_NRF_CLOUD_SEC_TAG;
@@ -1341,6 +1350,9 @@ ble fota C2:6B:AC:6D:05:A3 firmware.beta.nrfcloud.com ba1752ef-0d36-4fcf-8748-3c
 #if CONFIG_GATEWAY_BLE_FOTA
 static int cmd_ble_fota(const struct shell *shell, size_t argc, char **argv)
 {
+	if (argc < 3) {
+		return -EINVAL;
+	}
 	char *addr = argv[0];
 	char *host = argv[1];
 	char *path = argv[2];
@@ -1474,8 +1486,11 @@ static int cmd_login(const struct shell *shell, size_t argc, char **argv)
 		z_shell_history_purge(shell->history);
 		shell_set_root_cmd(NULL);
 		shell_prompt_change(shell, CONFIG_SHELL_PROMPT_SECURE);
-		shell_print(shell, "nRF Cloud Gateway\n");
-		shell_print(shell, "Hit tab for help.\n");
+
+		shell_print(shell, "\nnRF Cloud Gateway\n");
+		print_fw_info(shell, false);
+
+		shell_print(shell, "\nHit tab for help.\n");
 		return 0;
 	} else {
 		shell_error(shell, "Incorrect password!");
