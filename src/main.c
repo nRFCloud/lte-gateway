@@ -48,7 +48,6 @@
 #include "ble_conn_mgr.h"
 #include "ble_codec.h"
 #include "ble.h"
-#include "config.h"
 #include "gateway.h"
 #include "peripheral_dfu.h"
 
@@ -1147,24 +1146,10 @@ static void log_uart_pins(void)
 #endif
 }
 
-
-void lg_printk(char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	log_printk(fmt, args);
-	va_end(args);
-}
-
 void main(void)
 {
 	int err;
 
-	lg_printk("\n*************************************************\n");
-	lg_printk("nRF Cloud Gateway Starting Up...\n");
-	lg_printk("Ver:%s Built:%s\n", FW_REV_STRING, BUILT_STRING);
-	lg_printk("*************************************************\n\n");
 	log_uart_pins();
 
 #if defined(CONFIG_USE_UI_MODULE)
@@ -1182,8 +1167,6 @@ void main(void)
 	k_thread_name_set(&application_work_q.thread, "appworkq");
 
 	starting_button_handler();
-
-	k_sleep(K_SECONDS(2));
 
 #if defined(CONFIG_SHELL)
 	cli_init();
@@ -1211,7 +1194,9 @@ void main(void)
 	 * connecting to cloud -- otherwise it can be hard to follow
 	 * what's happening when debugging
 	 */
-	k_sleep(K_SECONDS(5));
+#if defined(CONFIG_BT_DEBUG)
+	 k_sleep(K_SECONDS(5));
+#endif
 	cloud_api_init();
 
 	work_init();
