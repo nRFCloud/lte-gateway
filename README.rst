@@ -155,7 +155,7 @@ Program nRF52840 Board Controller
 
 For the Apricity Gateway hardware, follow the same instructions as above in the folder for its repository, except use ``apricity_gateway_nrf52840`` instead of ``apricity_gateway_nrf9160ns``, and connect the Tag Connect to ``NRF52:J1``.
 
-For the nRF9160 DK, `hci_lpuart`_ must instead be programmed in the nRF52 board controller.  This should be done from the root of the lte-gatweway repo so that the required device tree overlays in the `boards <./boards>`_ folder are utilized.
+For the nRF9160 DK, `hci_lpuart`_ must instead be programmed in the nRF52 board controller.  This should be done from the root of the lte-gateway repo so that the required device tree overlays in the `boards <./boards>`_ folder are utilized.
 
 Program The nRF9160 Modem Processor
 -----------------------------------
@@ -200,18 +200,34 @@ Provisioning and Associating with nRF Cloud
 
 Once you are signed in, perform the following steps to add the gateway to your nRF Cloud account.
 
-NOTE: the new provision devices web UI is not released yet for nRF Cloud.  Users must currently use curl or Postman to submit the csv file to the nRF Cloud REST API directly.  You will need to find your nRF Cloud account API Key on your account settings page.
+There are two ways to provision and associate using the provision.csv file you generated::
+
+#. Via the nRF Cloud website: `nRF Cloud Provision Devices`_
+#. Programmatically using `nRF Cloud ProvisionDevices REST API`_
+
+On the `nRF Cloud Provision Devices`_ page, you can drag and drop the CSV file, or click  the button to browse for and select it.
+Click the Upload and Provision button to begin the process.  The status will be displayed in the table below.
+
+Instead of using the website, you can instead use curl or Postman to submit the csv file to the `nRF Cloud ProvisionDevices REST API`_ directly.
+You will need to find your nRF Cloud account API Key on your account settings page, and use it in place of $API_KEY below.
 
 e.g.::
 
-   $ curl --location --request POST 'https://api.nrfcloud.com/v1/devices' --header 'Authorization: Bearer <customers API key>' --header 'Content-Type: text/csv' --data-binary '@provision.csv'
-   {"bulkOpsRequestId":"01FE6M2552H7YZQ4XAGWJIR2TW"}
+   $ curl --location --request POST 'https://api.nrfcloud.com/v1/devices' --header 'Authorization: Bearer $API_KEY' --header 'Content-Type: text/csv' --data-binary '@provision.csv'
+   *returns:*
+   {"bulkOpsRequestId":"01FE6M2552H7YZQ4XAGWJPR2TW"}
+   $
 
-You can then determine if it succeeded by passing the bulkOpsRequestId to the fetchBulkOpsRequest API::
+You can then determine if it succeeded by passing the bulkOpsRequestId returned to the fetchBulkOpsRequest API.
 
-   $ curl --location --request GET 'https://api.nrfcloud.com/v1/bulk-ops-requests/<bulkOpsRequestID>' --header 'Authorization: Bearer <customers API Key>'
+e.g.::
 
-This will return the status.
+   $ curl --location --request GET 'https://api.nrfcloud.com/v1/bulk-ops-requests/01FE6M2552H7YZQ4XAGWJPR2TW' --header 'Authorization: Bearer $API_KEY'
+   *returns:*
+   {"bulkOpsRequestId":"01FE6M2552H7YZQ4XAGWJPR2TW","status":"SUCCEEDED","endpoint":"PROVISION_DEVICES","requestedAt":"2021-10-08T19:42:45.992Z","completedAt":"2021-10-08T19:42:49.069Z","uploadedDataUrl":"https://bulk-ops-requests.nrfcloud.com/f08f15c3-b523-7841-ec5a-b277610ade88/provision_devices/01FE6M2552H7YZQ4XAGWJPR2TW.csv"}
+   $
+
+This will return the status, as shown above.
 
 Documentation for the nRF Cloud REST API commands above is here:
 
@@ -471,6 +487,8 @@ From Zephyr:
 .. _`nRF Connect for Desktop`: https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Connect-for-desktop
 
 .. _`nRF Cloud`: https://nrfcloud.com/
+.. _`nRF Cloud Provision Devices`: https://nrfcloud.com/#/provision-devices
+.. _`nRF Cloud ProvisionDevices REST API`: https://api.nrfcloud.com/v1#operation/ProvisionDevices
 
 .. _`nrfcloud_gateway_controller`: https://github.com/nRFCloud/lte-gateway-ble
 
