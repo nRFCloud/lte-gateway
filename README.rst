@@ -202,7 +202,7 @@ Once you are signed in, perform the following steps to add the gateway to your n
 
 There are two ways to provision and associate using the provision.csv file you generated::
 
-#. Via the nRF Cloud website: `nRF Cloud Provision Devices`_
+1. Via the nRF Cloud website: `nRF Cloud Provision Devices`_
 #. Programmatically using `nRF Cloud ProvisionDevices REST API`_
 
 On the `nRF Cloud Provision Devices`_ page, you can drag and drop the CSV file, or click  the button to browse for and select it.
@@ -214,26 +214,22 @@ You will need to find your nRF Cloud account API Key on your account settings pa
 e.g.::
 
    $ curl --location --request POST 'https://api.nrfcloud.com/v1/devices' --header 'Authorization: Bearer $API_KEY' --header 'Content-Type: text/csv' --data-binary '@provision.csv'
-   *returns:*
+
+*returns*::
+
    {"bulkOpsRequestId":"01FE6M2552H7YZQ4XAGWJPR2TW"}
    $
 
-You can then determine if it succeeded by passing the bulkOpsRequestId returned to the fetchBulkOpsRequest API.
+You can then determine if it succeeded by passing the bulkOpsRequestId returned to the `nRF Cloud FetchBulkOpsRequest REST API`_.
 
 e.g.::
 
    $ curl --location --request GET 'https://api.nrfcloud.com/v1/bulk-ops-requests/01FE6M2552H7YZQ4XAGWJPR2TW' --header 'Authorization: Bearer $API_KEY'
-   *returns:*
+
+*returns*::
+
    {"bulkOpsRequestId":"01FE6M2552H7YZQ4XAGWJPR2TW","status":"SUCCEEDED","endpoint":"PROVISION_DEVICES","requestedAt":"2021-10-08T19:42:45.992Z","completedAt":"2021-10-08T19:42:49.069Z","uploadedDataUrl":"https://bulk-ops-requests.nrfcloud.com/f08f15c3-b523-7841-ec5a-b277610ade88/provision_devices/01FE6M2552H7YZQ4XAGWJPR2TW.csv"}
    $
-
-This will return the status, as shown above.
-
-Documentation for the nRF Cloud REST API commands above is here:
-
-- https://api.nrfcloud.com/v1#operation/ProvisionDevices
-- https://api.nrfcloud.com/v1#tag/Bulk-Ops-Requests
-
 
 Testing
 *******
@@ -489,6 +485,7 @@ From Zephyr:
 .. _`nRF Cloud`: https://nrfcloud.com/
 .. _`nRF Cloud Provision Devices`: https://nrfcloud.com/#/provision-devices
 .. _`nRF Cloud ProvisionDevices REST API`: https://api.nrfcloud.com/v1#operation/ProvisionDevices
+.. _`nRF Cloud FetchBulkOpsRequest REST API`: https://api.nrfcloud.com/v1#operation/FetchBulkOpsRequest
 
 .. _`nrfcloud_gateway_controller`: https://github.com/nRFCloud/lte-gateway-ble
 
