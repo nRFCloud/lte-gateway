@@ -1,8 +1,8 @@
 # Apricity Gateway nRF9160 board configuration
 #
-# Copyright (c) 2020 Nordic Semiconductor ASA
+# Copyright (c) 2025 Nordic Semiconductor ASA
 #
-# SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 
 module=BOARD
 module-dep=LOG
@@ -16,18 +16,3 @@ config BOARD_NRF52840_GPIO_RESET
 	  Use a GPIO pin to reset the nRF52840 controller and let it wait
 	  until all bytes traveling to the H4 device have been received
 	  and drained, thus ensuring communication can begin correctly.
-
-config BOARD_NRF52840_GPIO_RESET_PIN
-	int "Reset pin"
-	default 13
-	depends on BOARD_NRF52840_GPIO_RESET
-	help
-	  GPIO pin on the nRF9160 used to reset the nRF52840.
-
-config BOARD_NRF52840_GPIO_BOOT_SELECT_PIN
-	int "Boot select pin"
-	default 5
-	depends on BOARD_NRF52840_GPIO_RESET
-	help
-	  GPIO pin on the nrf9160 used to switch nrf52840 to its boot-
-	  loader.  This must be held for a period after releasing reset.
